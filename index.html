@@ -62,7 +62,24 @@
     </header>
 
     <main class="home">
-      <section class="hero">
+      <section class="card staff" id="staffCard" hidden>
+        <div class="card-head"><h3>Firm staff</h3></div>
+        <p class="muted small" id="staffSummary"></p>
+        <div class="staff-btns">
+          <button type="button" class="staff-btn" id="btnStaffCheck"><span class="count" id="staffCheckCount">0</span>To check</button>
+          <button type="button" class="staff-btn" id="btnStaffWait"><span class="count wait" id="staffWaitCount">0</span>Waiting for client</button>
+        </div>
+      </section>
+
+      <section class="card notif" id="notifCard" hidden>
+        <div class="notif-row"><span class="notif-ico" aria-hidden="true">🔔</span><p id="notifText"></p></div>
+        <div class="notif-btns">
+          <button type="button" class="btn primary small" id="btnNotif">Turn on notifications</button>
+          <button type="button" class="link" id="btnNotifLater">Later</button>
+        </div>
+      </section>
+
+      <section class="hero" id="sendSection">
         <h2>Send documents</h2>
         <p class="muted">Receipts, invoices, 2307s, bank statements — snap a photo or pick files.</p>
         <div class="big-actions">
@@ -77,9 +94,14 @@
             <span>Choose files</span>
           </label>
         </div>
+        <button type="button" class="action-btn" id="btnAction" hidden>
+          <span class="action-ico" aria-hidden="true">!</span>
+          <span class="action-text">Needs immediate action<small>Tap to see what the firm needs</small></span>
+          <span class="action-count" id="actionCount">0</span>
+        </button>
       </section>
 
-      <section class="card">
+      <section class="card" id="historyCard">
         <div class="card-head">
           <h3>Recently sent</h3>
           <button id="btnRefresh" class="link" type="button">Refresh</button>
@@ -102,7 +124,7 @@
         <button class="icon-btn" type="button" id="btnCloseSend" aria-label="Close">✕</button>
       </div>
 
-      <p class="read-intro muted" id="readIntro">Gabbrielle is reading your documents…</p>
+      <p class="read-intro muted" id="readIntro"></p>
       <div id="docs" class="docs"></div>
       <label class="add-more">
         <input id="inMore" type="file" accept="image/*,application/pdf" multiple hidden>
@@ -141,6 +163,30 @@
       <div id="menuBody"></div>
     </div>
   </div>
+
+  <!-- ============ NEEDS IMMEDIATE ACTION (client) ============ -->
+  <div id="sheetAction" class="sheet-wrap" hidden>
+    <div class="sheet">
+      <div class="sheet-head"><h3>Needs immediate action</h3><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
+      <p class="muted small" id="actionIntro"></p>
+      <div id="actionList" class="qa-list"></div>
+    </div>
+  </div>
+
+  <!-- ============ STAFF: TO CHECK ============ -->
+  <div id="sheetStaff" class="sheet-wrap" hidden>
+    <div class="sheet">
+      <div class="sheet-head"><h3>Firm staff</h3><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
+      <div class="chips tabs">
+        <button type="button" class="chip" id="tabCheck" aria-pressed="true">To check</button>
+        <button type="button" class="chip" id="tabWait" aria-pressed="false">Waiting for client</button>
+      </div>
+      <div id="staffList" class="qa-list"></div>
+    </div>
+  </div>
+
+  <!-- ============ PHOTO VIEWER ============ -->
+  <div id="viewer" class="viewer" hidden><img id="viewerImg" alt="Document photo"><span class="viewer-hint">Tap anywhere to close</span></div>
 
   <div id="toast" class="toast" hidden></div>
 

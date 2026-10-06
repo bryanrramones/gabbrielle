@@ -1,6 +1,6 @@
 // Keeps the app's screens on the phone so it opens instantly, even on a weak signal.
 // Sending documents always needs internet.
-const CACHE = 'gabbrielle-v3';
+const CACHE = 'gabbrielle-v5';
 const SHELL = [
   './', './index.html', './app.css', './app.js', './scanner.js', './config.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/emblem.png', './icons/logo-full.png', './icons/favicon.png'
@@ -27,4 +27,34 @@ self.addEventListener('fetch', e => {
       return res;
     }).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
   );
+});
+
+// ---------- Phone notifications ----------
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data ? e.data.text() : '' }; }
+  const title = d.title || 'Gabbrielle';
+  e.waitUntil(Promise.all([
+    self.registration.showNotification(title, {
+      body: d.body || 'Open Gabbrielle to see what\'s new.',
+      icon: 'icons/icon-192.png', badge: 'icons/favicon.png',
+      tag: d.tag || 'gabbrielle', renotify: true,
+      data: { url: d.url || './' }
+    }),
+    self.navigator && self.navigator.setAppBadge ? self.navigator.setAppBadge().catch(() => {}) : null
+  ]));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    for (const c of list) {
+      if (c.url.startsWith(self.registration.scope)) {
+        c.postMessage({ type: 'open', url });
+        return c.focus();
+      }
+    }
+    return self.clients.openWindow(url);
+  }));
 });
