@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Gabbrielle</title>
+  <meta name="description" content="Send your receipts and documents to B.R. Ramones Accounting Firm.">
+  <meta name="theme-color" content="#16324f">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/favicon.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Gabbrielle">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="demoBanner" class="demo-banner" hidden>Demo mode — nothing is really sent. Login code: <b>123456</b></div>
+  <div id="offline" class="offline" hidden>No internet connection. You can still look around, but sending needs a signal.</div>
+
+  <!-- ============ LOGIN ============ -->
+  <main id="viewLogin" class="view login" hidden>
+    <div class="login-card">
+      <img src="icons/logo-full.png" alt="B.R. Ramones Accounting Firm logo" class="login-logo">
+      <h1 class="app-title" data-app-name>Gabbrielle</h1>
+      <p class="muted" id="loginFirm">by B.R. Ramones Accounting Firm</p>
+
+      <form id="formEmail" class="stack" autocomplete="on" novalidate>
+        <label for="email">Your Gmail address</label>
+        <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="yourname@gmail.com" required>
+        <button class="btn primary" type="submit" id="btnSendCode">Send me a login code</button>
+        <p class="hint">We'll email you a 6-digit code. Only Gmail addresses registered with the firm can log in.</p>
+      </form>
+
+      <form id="formCode" class="stack" hidden novalidate>
+        <p class="sent-to">We sent a code to <b id="sentTo"></b>. Check your inbox (and Spam).</p>
+        <label for="code">6-digit code</label>
+        <input id="code" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" required>
+        <button class="btn primary" type="submit" id="btnVerify">Log in</button>
+        <div class="row-links">
+          <button type="button" class="link" id="btnResend" disabled>Send a new code</button>
+          <button type="button" class="link" id="btnChangeEmail">Use a different Gmail</button>
+        </div>
+      </form>
+
+      <p id="loginMsg" class="msg" role="alert" hidden></p>
+    </div>
+  </main>
+
+  <!-- ============ HOME ============ -->
+  <div id="viewHome" class="view" hidden>
+    <header class="topbar">
+      <img src="icons/emblem.png" alt="" class="topbar-logo">
+      <div class="topbar-text">
+        <div class="topbar-app" data-app-name>Gabbrielle</div>
+        <button id="btnBusiness" class="business" type="button" aria-haspopup="dialog">
+          <span id="businessName">—</span><span id="businessCaret" class="caret" hidden>▾</span>
+        </button>
+      </div>
+      <button id="btnMenu" class="icon-btn" type="button" aria-label="Menu">⋮</button>
+    </header>
+
+    <main class="home">
+      <section class="hero">
+        <h2>Send documents</h2>
+        <p class="muted">Receipts, invoices, 2307s, bank statements — snap a photo or pick files.</p>
+        <div class="big-actions">
+          <label class="big-btn camera">
+            <input id="inCamera" type="file" accept="image/*" capture="environment" hidden>
+            <span class="big-ico" aria-hidden="true">📷</span>
+            <span>Take a photo</span>
+          </label>
+          <label class="big-btn files">
+            <input id="inFiles" type="file" accept="image/*,application/pdf" multiple hidden>
+            <span class="big-ico" aria-hidden="true">📎</span>
+            <span>Choose files</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h3>Recently sent</h3>
+          <button id="btnRefresh" class="link" type="button">Refresh</button>
+        </div>
+        <ul id="history" class="history"><li class="muted">Loading…</li></ul>
+      </section>
+
+      <section class="card contact" id="contactCard">
+        <h3>Need help?</h3>
+        <p id="contactText" class="muted"></p>
+      </section>
+    </main>
+  </div>
+
+  <!-- ============ SEND SHEET ============ -->
+  <div id="sheetSend" class="sheet-wrap" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sendTitle">
+      <div class="sheet-head">
+        <h3 id="sendTitle">Send to the firm</h3>
+        <button class="icon-btn" type="button" id="btnCloseSend" aria-label="Close">✕</button>
+      </div>
+
+      <div id="thumbs" class="thumbs"></div>
+      <label class="add-more">
+        <input id="inMore" type="file" accept="image/*,application/pdf" multiple hidden>
+        + Add more
+      </label>
+
+      <fieldset class="field">
+        <legend>What are these? <span class="req">*</span></legend>
+        <div id="docTypes" class="chips"></div>
+      </fieldset>
+
+      <div class="field">
+        <label for="period">For which month?</label>
+        <select id="period"></select>
+      </div>
+
+      <div class="field">
+        <label for="note">Note to the firm (optional)</label>
+        <textarea id="note" rows="2" maxlength="500" placeholder="e.g. Gas expenses for the delivery truck"></textarea>
+      </div>
+
+      <p id="sendMsg" class="msg" role="alert" hidden></p>
+      <button id="btnSend" class="btn primary block" type="button">Send</button>
+    </div>
+  </div>
+
+  <!-- ============ DONE ============ -->
+  <div id="sheetDone" class="sheet-wrap" hidden>
+    <div class="sheet done">
+      <div class="check" aria-hidden="true">✓</div>
+      <h3 id="doneTitle">Received!</h3>
+      <p id="doneText" class="muted"></p>
+      <button id="btnDone" class="btn primary block" type="button">Done</button>
+    </div>
+  </div>
+
+  <!-- ============ MENU / BUSINESS PICKER ============ -->
+  <div id="sheetMenu" class="sheet-wrap" hidden>
+    <div class="sheet">
+      <div class="sheet-head"><h3 id="menuTitle">Menu</h3><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
+      <div id="menuBody"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
