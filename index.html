@@ -102,19 +102,15 @@
         <button class="icon-btn" type="button" id="btnCloseSend" aria-label="Close">✕</button>
       </div>
 
-      <div id="thumbs" class="thumbs"></div>
+      <p class="read-intro muted" id="readIntro">Gabbrielle is reading your documents…</p>
+      <div id="docs" class="docs"></div>
       <label class="add-more">
         <input id="inMore" type="file" accept="image/*,application/pdf" multiple hidden>
         + Add more
       </label>
 
-      <fieldset class="field">
-        <legend>What are these? <span class="req">*</span></legend>
-        <div id="docTypes" class="chips"></div>
-      </fieldset>
-
       <div class="field">
-        <label for="period">For which month?</label>
+        <label for="period">For which month? <span class="muted" style="font-weight:400">(used when the date can't be read)</span></label>
         <select id="period"></select>
       </div>
 

@@ -1,6 +1,6 @@
 // Keeps the app's screens on the phone so it opens instantly, even on a weak signal.
 // Sending documents always needs internet.
-const CACHE = 'gabbrielle-v2';
+const CACHE = 'gabbrielle-v3';
 const SHELL = [
   './', './index.html', './app.css', './app.js', './scanner.js', './config.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/emblem.png', './icons/logo-full.png', './icons/favicon.png'

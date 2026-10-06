@@ -12,8 +12,7 @@
     email: store('get', KEY.email),
     clients: [],
     client: null,
-    pending: [],      // files waiting to be sent
-    docType: '',
+    pending: [],      // documents being read / waiting to be sent
     sending: false
   };
 
@@ -71,7 +70,7 @@
     $('loginFirm').textContent = 'by ' + c.firmName;
     var lines = [c.firmName];
     if (c.phone) lines.push('📞 ' + c.phone);
-    if (c.email) lines.push('✉️ ' + c.email);
+    if (c.email) lines.push('✉ ' + c.email);
     if (c.address) lines.push('📍 ' + c.address);
     if (lines.length === 1) lines.push('Message the firm directly if something isn\'t working.');
     $('contactText').textContent = lines.join('\n');
@@ -190,7 +189,8 @@
         var li = document.createElement('li');
         var ico = el('div', 'h-ico', /pdf$/i.test(it.fileName) ? '📄' : '🧾');
         var main = el('div', 'h-main');
-        main.appendChild(el('div', 'h-title', it.docType + ' · ' + monthLabel(it.period)));
+        main.appendChild(el('div', 'h-title', it.docType + (it.docNo ? ' No. ' + it.docNo : '') + ' · ' + monthLabel(it.period)));
+        if (it.total != null && it.total !== '') main.appendChild(el('div', 'h-amt', peso(it.total) + (it.party ? ' · ' + it.party : '')));
         main.appendChild(el('div', 'h-sub', it.received + (it.note ? ' — ' + it.note : '')));
         if (it.remarks) main.appendChild(el('div', 'h-remark', 'Firm: ' + it.remarks));
         var status = String(it.status || 'New');
@@ -273,63 +273,192 @@
 
   function addFiles(list) {
     var maxBytes = (state.cfg.maxFileMb || 15) * 1024 * 1024;
-    var skipped = 0;
+    var skipped = 0, added = [];
     Array.prototype.forEach.call(list || [], function (f) {
       var okType = /^image\//i.test(f.type) || /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name);
       if (!okType) { skipped++; return; }
       if (/pdf/i.test(f.type) && f.size > maxBytes) { skipped++; return; }
-      state.pending.push({ file: f, id: Math.random().toString(36).slice(2), status: '' });
+      var item = { file: f, id: Math.random().toString(36).slice(2), status: 'queued', edits: {}, docType: '', ack: false, open: false };
+      state.pending.push(item); added.push(item);
     });
     if (skipped) toast(skipped + ' file(s) skipped — only photos and PDFs up to ' + state.cfg.maxFileMb + ' MB.');
-    if (state.pending.length) openSend();
+    if (!state.pending.length) return;
+    if ($('sheetSend').hidden) openSend(); else renderDocs();
+    readQueue();
   }
 
   function openSend() {
-    renderThumbs();
-    renderDocTypes();
     renderPeriods();
     msg($('sendMsg'), '');
-    updateSendButton();
+    renderDocs();
     openSheet('sheetSend');
   }
 
-  function renderThumbs() {
-    var box = $('thumbs'); box.innerHTML = '';
-    state.pending.forEach(function (p) {
-      var t = el('div', 'thumb');
-      if (/^image\//.test(p.file.type)) {
-        var img = document.createElement('img');
-        if (!p.url) p.url = URL.createObjectURL(p.file);
-        img.src = p.url; img.alt = p.file.name;
-        t.appendChild(img);
-      } else {
-        t.appendChild(el('div', 'pdf', '📄\n' + p.file.name));
+  // ------------------------------------------------------------------ reading (OCR on the firm's side)
+  var reading = false;
+  function readQueue() {
+    if (reading) return;
+    var item = state.pending.filter(function (p) { return p.status === 'queued'; })[0];
+    if (!item) { renderDocs(); return; }
+    reading = true; item.status = 'reading'; renderDocs();
+    prepare(item.file).then(function (f) {
+      return call('analyze', { token: state.token, clientCode: state.client.code, fileName: f.name, mimeType: f.type, data: f.data });
+    }, function () { return { ok: false, error: 'This file could not be opened.' }; }).then(function (r) {
+      reading = false;
+      if (!state.pending.includes(item)) return readQueue();
+      if (r.code === 'LOGGED_OUT') { closeSheet('sheetSend'); clearPending(); return logout(true, r.error); }
+      if (!r.ok) { item.status = 'error'; item.error = r.error; }
+      else {
+        item.pendingId = r.pendingId; item.analysis = r.analysis;
+        item.status = !r.analysis ? 'manual' : r.analysis.sure ? 'sure' : 'ask';
+        item.docType = r.analysis ? r.analysis.docType : '';
       }
-      if (!state.sending && p.status !== 'ok') {
-        var x = el('button', 'x', '✕'); x.type = 'button'; x.setAttribute('aria-label', 'Remove');
-        x.addEventListener('click', function () {
-          state.pending = state.pending.filter(function (q) { return q !== p; });
-          if (p.url) URL.revokeObjectURL(p.url);
-          if (!state.pending.length) closeSheet('sheetSend'); else { renderThumbs(); updateSendButton(); }
-        });
-        t.appendChild(x);
-      }
-      if (p.status) {
-        var label = p.status === 'ok' ? '✓ Sent' : p.status === 'err' ? '✕ Failed' : 'Sending…';
-        t.appendChild(el('div', 'state ' + p.status, label));
-      }
-      box.appendChild(t);
+      renderDocs(); readQueue();
     });
   }
 
-  function renderDocTypes() {
-    var box = $('docTypes'); box.innerHTML = '';
-    state.cfg.docTypes.forEach(function (d) {
-      var b = el('button', 'chip', d); b.type = 'button';
-      b.setAttribute('aria-pressed', String(state.docType === d));
-      b.addEventListener('click', function () { state.docType = d; renderDocTypes(); updateSendButton(); msg($('sendMsg'), ''); });
-      box.appendChild(b);
+  var FIELD_LABEL = { docNo: 'Document no.', docDate: 'Date', total: 'Total amount (₱)', taxWithheld: 'Tax withheld (₱)', docType: 'Type of document' };
+
+  function renderDocs() {
+    var box = $('docs'); box.innerHTML = '';
+    var busy = state.pending.some(function (p) { return p.status === 'queued' || p.status === 'reading'; });
+    $('readIntro').textContent = busy ? 'Gabbrielle is reading your documents…'
+      : state.pending.some(function (p) { return p.status === 'ask' || p.status === 'manual'; }) ? 'Please check the highlighted items, then send.'
+      : 'All documents read. Please review, then send.';
+    state.pending.forEach(function (p) { box.appendChild(docCard(p)); });
+    updateSendButton();
+  }
+
+  function docCard(p) {
+    var an = p.analysis, st = p.status;
+    var cls = st === 'sure' || st === 'sent' ? 's-sure' : st === 'ask' || st === 'manual' ? 's-ask' : st === 'error' ? 's-err' : '';
+    var card = el('div', 'doc ' + cls);
+    var th;
+    if (/^image\//.test(p.file.type)) { th = document.createElement('img'); th.className = 'doc-thumb'; if (!p.url) p.url = URL.createObjectURL(p.file); th.src = p.url; th.alt = ''; }
+    else th = el('div', 'doc-thumb', '📄');
+    card.appendChild(th);
+    var body = el('div', 'doc-body');
+    card.appendChild(body);
+
+    if (st === 'queued' || st === 'reading') {
+      var s1 = el('div', 'doc-status'); s1.innerHTML = '<span class="spin"></span>' + (st === 'reading' ? 'Reading…' : 'Waiting…');
+      body.appendChild(s1); body.appendChild(el('div', 'doc-sub', p.file.name));
+    } else if (st === 'sending') {
+      var s2 = el('div', 'doc-status'); s2.innerHTML = '<span class="spin"></span>Sending…'; body.appendChild(s2);
+    } else if (st === 'sent') {
+      body.appendChild(el('div', 'doc-status', '✓ Sent')); body.appendChild(el('div', 'doc-sub', p.sentName || ''));
+    } else if (st === 'error') {
+      body.appendChild(el('div', 'doc-status', '✕ Not read'));
+      body.appendChild(el('div', 'doc-sub', p.error || 'Something went wrong.'));
+      var retry = el('button', 'link', 'Try again'); retry.type = 'button';
+      retry.addEventListener('click', function () { p.status = 'queued'; renderDocs(); readQueue(); });
+      body.appendChild(retry);
+    } else {
+      // sure / ask / manual
+      var title = st === 'sure' ? '✓ ' + (an ? an.docType + (an.fields.docNo ? ' No. ' + an.fields.docNo : '') : '')
+                : st === 'manual' ? 'Please choose the document type' : '⚠ Please check';
+      body.appendChild(el('div', 'doc-status', title));
+      if (an) body.appendChild(el('div', 'doc-sub', subLine(an)));
+      var asks = an ? an.ask : [{ field: 'docType' }];
+      if (st === 'ask' && an && an.ask.length) {
+        var ul = el('ul', 'doc-why');
+        an.ask.forEach(function (a) { if (a.reason) ul.appendChild(el('li', '', a.reason)); });
+        body.appendChild(ul);
+      }
+      var showFields = st !== 'sure' || p.open;
+      if (showFields) body.appendChild(fieldsFor(p, asks));
+      else {
+        var ed = el('button', 'link doc-edit', 'Edit details'); ed.type = 'button';
+        ed.addEventListener('click', function () { p.open = true; renderDocs(); });
+        body.appendChild(ed);
+      }
+    }
+    if (st !== 'sending' && st !== 'sent' && !state.sending) {
+      var x = el('button', 'x', '✕'); x.type = 'button'; x.setAttribute('aria-label', 'Remove');
+      x.addEventListener('click', function () {
+        state.pending = state.pending.filter(function (q) { return q !== p; });
+        if (p.url) URL.revokeObjectURL(p.url);
+        if (!state.pending.length) closeSheet('sheetSend'); else renderDocs();
+      });
+      card.appendChild(x);
+    }
+    return card;
+  }
+
+  function subLine(an) {
+    var F = an.fields, bits = [];
+    if (F.docDate) bits.push(niceDate(F.docDate));
+    var amt = an.typeKey === 'F2307' ? F.taxWithheld : F.total;
+    if (amt != null) bits.push((an.typeKey === 'F2307' ? 'tax withheld ' : '') + peso(amt));
+    if (F.partyName) bits.push((an.side === 'own' ? 'to ' : 'from ') + F.partyName);
+    return bits.join(' · ') || 'Some details could not be read';
+  }
+
+  function fieldsFor(p, asks) {
+    var an = p.analysis, F = (an && an.fields) || {};
+    var need = {}; (asks || []).forEach(function (a) { need[a.field] = true; });
+    var is2307 = (p.docType || '') === 'BIR Form 2307';
+    var amtKey = is2307 ? 'taxWithheld' : 'total';
+    var grid = el('div', 'doc-fields');
+
+    // type
+    var tl = el('label', 'full' + (need.docType || !p.docType ? ' need' : '')); tl.appendChild(document.createTextNode(FIELD_LABEL.docType));
+    var sel = document.createElement('select');
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Choose…'; sel.appendChild(o0);
+    state.cfg.docTypes.forEach(function (d) { var o = document.createElement('option'); o.value = d; o.textContent = d; sel.appendChild(o); });
+    sel.value = p.docType || '';
+    sel.addEventListener('change', function () { p.docType = sel.value; p.touched = true; renderDocs(); });
+    tl.appendChild(sel); grid.appendChild(tl);
+
+    if (!an && p.status === 'manual') return grid;   // not read: type is enough (firm will review)
+
+    addInput('docNo', 'text', F.docNo || '');
+    addInput('docDate', 'date', F.docDate || '');
+    addInput(amtKey, 'text', F[amtKey] != null ? Number(F[amtKey]).toFixed(2) : '', 'decimal');
+    if (p.status === 'ask' || p.touched) {
+      var ck = el('label', 'doc-check full');
+      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!p.ack;
+      cb.addEventListener('change', function () { p.ack = cb.checked; updateSendButton(); });
+      ck.appendChild(cb);
+      ck.appendChild(document.createTextNode(need.duplicate ? 'Yes, this is a different document — send it' : 'I checked — these details match the document'));
+      grid.appendChild(ck);
+    }
+    return grid;
+
+    function addInput(key, type, val, mode) {
+      var lab = el('label', (need[key] ? 'need' : '') + (key === 'total' || key === 'taxWithheld' ? ' full' : '')); lab.appendChild(document.createTextNode(FIELD_LABEL[key]));
+      var inp = document.createElement('input'); inp.type = type; if (mode) inp.inputMode = mode;
+      inp.value = p.edits[key] != null ? p.edits[key] : val;
+      inp.addEventListener('input', function () { p.edits[key] = inp.value; var first = !p.touched; p.touched = true; p.ack = false; if (first && p.status === 'sure') { p.focusKey = key; renderDocs(); } else updateSendButton(); });
+      lab.appendChild(inp); grid.appendChild(lab);
+      if (p.focusKey === key) { p.focusKey = null; setTimeout(function () { inp.focus(); try { var n = inp.value.length; inp.setSelectionRange(n, n); } catch (e) {} }, 0); }
+    }
+  }
+
+  /** A document is ready when it was read with certainty, or the client filled in every question. */
+  function itemReady(p) {
+    if (p.status === 'manual') return !!p.docType;
+    if (p.status === 'sure') return !!p.docType && (!p.touched || p.ack);
+    if (p.status !== 'ask' || !p.docType || !p.ack) return false;
+    var F = p.analysis.fields;
+    return p.analysis.ask.every(function (a) {
+      if (a.field === 'duplicate' || a.field === 'docType' || a.field === 'vat') return true;
+      var v = p.edits[a.field] != null ? p.edits[a.field] : F[a.field];
+      if (a.field === 'total' || a.field === 'taxWithheld') {
+        var n = parseFloat(String(v == null ? '' : v).replace(/[^\d.]/g, ''));
+        return !isNaN(n) && n > 0;
+      }
+      return v != null && String(v).trim() !== '';
     });
+  }
+
+  function niceDate(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); if (!m) return iso || '';
+    return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m[2] - 1] + ' ' + (+m[3]) + ', ' + m[1];
+  }
+  function peso(v) {
+    var s = Number(v).toFixed(2).split('.');
+    return '₱' + s[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + s[1];
   }
 
   function renderPeriods() {
@@ -351,9 +480,13 @@
   }
 
   function updateSendButton() {
-    var left = state.pending.filter(function (p) { return p.status !== 'ok'; }).length;
-    $('btnSend').textContent = state.sending ? 'Sending…' : 'Send ' + left + ' document' + (left === 1 ? '' : 's');
-    $('btnSend').disabled = state.sending || !left;
+    var todo = state.pending.filter(function (p) { return p.status !== 'sent'; });
+    var busy = todo.some(function (p) { return p.status === 'queued' || p.status === 'reading'; });
+    var notReady = todo.filter(function (p) { return !itemReady(p); }).length;
+    var b = $('btnSend');
+    b.textContent = state.sending ? 'Sending…' : busy ? 'Reading…' : notReady ? 'Check ' + notReady + ' item' + (notReady > 1 ? 's' : '') + ' above'
+      : 'Send ' + todo.length + ' document' + (todo.length === 1 ? '' : 's');
+    b.disabled = state.sending || busy || !todo.length || notReady > 0;
   }
 
   $('btnCloseSend').addEventListener('click', function () {
@@ -364,51 +497,50 @@
 
   function clearPending() {
     state.pending.forEach(function (p) { if (p.url) URL.revokeObjectURL(p.url); });
-    state.pending = []; state.docType = ''; $('note').value = '';
+    state.pending = []; $('note').value = '';
   }
 
-  // ------------------------------------------------------------------ sending
+  // ------------------------------------------------------------------ sending (confirm each read document)
   $('btnSend').addEventListener('click', function () {
-    if (!state.docType) { msg($('sendMsg'), 'Please choose what kind of document these are.'); return; }
     if (!navigator.onLine && !DEMO) { msg($('sendMsg'), 'No internet connection. Please try again when you have a signal.'); return; }
     sendAll();
   });
 
   function sendAll() {
-    state.sending = true; updateSendButton(); msg($('sendMsg'), '');
-    var queue = state.pending.filter(function (p) { return p.status !== 'ok'; });
-    var period = $('period').value, note = $('note').value.trim(), docType = state.docType;
-    var failed = 0, loggedOut = null;
+    state.sending = true; msg($('sendMsg'), '');
+    var queue = state.pending.filter(function (p) { return p.status !== 'sent'; });
+    var period = $('period').value, note = $('note').value.trim();
+    var failed = 0, loggedOut = null, sent = 0;
 
     var next = function (i) {
       if (i >= queue.length || loggedOut) return finish();
-      var p = queue[i]; p.status = 'busy'; renderThumbs();
-      prepare(p.file).then(function (f) {
-        return call('upload', {
-          token: state.token, clientCode: state.client.code, docType: docType, period: period, note: note,
-          fileName: f.name, mimeType: f.type, data: f.data
-        });
-      }).then(function (r) {
-        if (r.ok) p.status = 'ok';
-        else { p.status = 'err'; failed++; p.error = r.error; if (r.code === 'LOGGED_OUT') loggedOut = r.error; }
-      }, function () { p.status = 'err'; failed++; p.error = 'This file could not be read.'; })
-        .then(function () { renderThumbs(); next(i + 1); });
+      var p = queue[i], before = p.status; p.prev = before; p.status = 'sending'; renderDocs();
+      var edits = {};
+      Object.keys(p.edits).forEach(function (k) { if (String(p.edits[k]).trim() !== '') edits[k] = p.edits[k]; });
+      var req = p.pendingId
+        ? call('confirm', { token: state.token, clientCode: state.client.code, pendingId: p.pendingId, docType: p.docType, period: period, note: note,
+                            edits: edits, clientVerified: before === 'ask' || before === 'manual' || !!p.touched })
+        : Promise.resolve({ ok: false, error: 'Not read yet.' });
+      req.then(function (r) {
+        if (r.ok) { p.status = 'sent'; p.sentName = r.fileName; sent++; }
+        else { p.status = before; failed++; p.error = r.error; if (r.code === 'LOGGED_OUT') loggedOut = r.error; }
+        renderDocs(); next(i + 1);
+      });
     };
 
     var finish = function () {
       state.sending = false;
       if (loggedOut) { closeSheet('sheetSend'); clearPending(); return logout(true, loggedOut); }
-      var sent = queue.length - failed;
       if (failed) {
-        renderThumbs(); updateSendButton();
-        var firstErr = queue.filter(function (p) { return p.status === 'err'; })[0];
+        renderDocs();
+        var firstErr = queue.filter(function (p) { return p.status !== 'sent'; })[0];
         msg($('sendMsg'), (sent ? sent + ' sent. ' : '') + failed + ' could not be sent: ' + (firstErr && firstErr.error || '') + ' Tap Send to try again.');
         return;
       }
       closeSheet('sheetSend');
       $('doneTitle').textContent = 'Received!';
-      $('doneText').textContent = sent + ' ' + docType + (sent === 1 ? '' : 's') + ' for ' + monthLabel(period) +
-        ' sent to ' + state.cfg.firmName + '. You\'ll see the status under “Recently sent”.';
+      $('doneText').textContent = sent + ' document' + (sent === 1 ? '' : 's') + ' sent to ' + state.cfg.firmName +
+        '. Gabbrielle filed ' + (sent === 1 ? 'it' : 'them') + ' for you — see “Recently sent”.';
       clearPending();
       openSheet('sheetDone');
       loadHistory();
@@ -486,6 +618,27 @@
         if (!who()) return reply({ ok: false, code: 'LOGGED_OUT', error: 'Please log in again.' });
         db.items.push({ clientCode: p.clientCode, received: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), docType: p.docType, period: p.period, note: p.note, fileName: p.fileName, status: 'New', remarks: '' });
         return reply({ ok: true });
+      case 'analyze':
+        if (!who()) return reply({ ok: false, code: 'LOGGED_OUT', error: 'Please log in again.' });
+        db.n = (db.n || 0) + 1;
+        var pid = 'pend' + db.n; db.pend = db.pend || {};
+        var sample = db.n % 3 === 1
+          ? { typeKey: 'SI', docType: 'Sales Invoice', sure: true, ask: [], side: 'own', fields: { docNo: '00' + (12344 + db.n), docDate: '2026-10-05', total: 11200, vatable: 10000, vat: 1200, partyName: 'ABC Construction Corp.' } }
+          : db.n % 3 === 2
+          ? { typeKey: 'SI', docType: 'Sales Invoice', sure: false, side: 'own', fields: { docNo: '0001523' },
+              ask: [{ field: 'total', reason: 'We could not read the total amount.' }, { field: 'docDate', reason: 'We could not read the date.' }] }
+          : { typeKey: 'F2307', docType: 'BIR Form 2307', sure: true, ask: [], side: 'received', fields: { docDate: '2026-09-30', taxWithheld: 500, total: 50000, partyName: 'Municipality of Aglipay', atc: 'WI640' } };
+        db.pend[pid] = sample;
+        return new Promise(function (res) { setTimeout(function () { res({ ok: true, pendingId: pid, analysis: sample }); }, 900); });
+      case 'confirm':
+        if (!who()) return reply({ ok: false, code: 'LOGGED_OUT', error: 'Please log in again.' });
+        var an = (db.pend || {})[p.pendingId]; if (!an) return reply({ ok: false, error: 'This document was already sent or has expired.' });
+        delete db.pend[p.pendingId];
+        var F = Object.assign({}, an.fields, p.edits || {});
+        db.items.push({ clientCode: p.clientCode, received: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }),
+          docType: p.docType, period: (F.docDate || p.period).slice(0, 7), note: p.note, fileName: 'scan.jpg', status: 'New', remarks: '', docNo: F.docNo || '',
+          total: an.typeKey === 'F2307' ? F.taxWithheld : F.total, party: F.partyName || '' });
+        return reply({ ok: true, fileName: (F.docDate || p.period) + ' – ' + (F.docNo || '') + '.jpg' });
       case 'logout': delete db.sessions[p.token]; return reply({ ok: true });
     }
     return reply({ ok: false, error: 'Unknown action.' });

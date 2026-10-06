@@ -157,3 +157,33 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
   .sheet-wrap { align-items: center; }
   .sheet { border-radius: 20px; }
 }
+
+/* ---------- Reader: document cards ---------- */
+.read-intro { margin: 0 0 10px; font-size: 14px; }
+.docs { display: flex; flex-direction: column; gap: 10px; }
+.doc { position: relative; display: flex; gap: 12px; padding: 12px; border-radius: 14px; border: 1.5px solid var(--line); background: #fff; }
+.doc.s-sure { border-color: #bfe5d1; background: #f6fcf9; }
+.doc.s-ask { border-color: #f3cf8f; background: #fffaf1; }
+.doc.s-err { border-color: #f1b8b1; background: #fff6f5; }
+.doc-thumb { width: 64px; height: 84px; flex: none; border-radius: 8px; object-fit: cover; background: var(--sky-soft); display: grid; place-items: center; font-size: 26px; }
+.doc-body { flex: 1; min-width: 0; }
+.doc-status { font-weight: 700; font-size: 15px; padding-right: 26px; }
+.doc.s-sure .doc-status { color: var(--ok); }
+.doc.s-ask .doc-status { color: var(--warn); }
+.doc.s-err .doc-status { color: var(--err); }
+.doc-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.doc-why { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: #7a4a00; }
+.doc-why li { margin: 2px 0; }
+.doc-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.doc-fields .full { grid-column: 1 / -1; }
+.doc-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.doc-fields input, .doc-fields select { padding: 10px; font-size: 15px; border-radius: 10px; }
+.doc-fields .need input, .doc-fields .need select { border-color: #e2a33b; background: #fffdf8; }
+.doc-check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; font-weight: 600; margin-top: 8px; color: #7a4a00; }
+.doc-check input { width: 20px; height: 20px; margin: 0; flex: none; }
+.doc-edit { margin-top: 6px; }
+.doc .x { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 15px; border: 0; background: rgba(0,0,0,.06); color: var(--ink); font-size: 14px; cursor: pointer; }
+.doc .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--sky-soft); border-top-color: var(--sky); border-radius: 50%; animation: spin 1s linear infinite; vertical-align: -2px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.h-amt { font-size: 13px; color: var(--ink); font-weight: 600; }
+.doc-fields label.doc-check { flex-direction: row; align-items: center; color: #7a4a00; font-size: 13px; }
