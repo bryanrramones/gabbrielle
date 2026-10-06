@@ -16,7 +16,10 @@
     sending: false,
     staff: false,     // firm staff (Bryan, Paul, firm account)
     items: [],        // this business's "Needs immediate action" list
-    staffItems: { forStaff: [], waiting: [] }
+    staffItems: { forStaff: [], waiting: [] },
+    role: 'client',   // client | staff | owner
+    overview: null,   // owner's clients overview
+    nickname: store('get', 'gab.nick') || ''
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -48,7 +51,7 @@
 
   // ------------------------------------------------------------------ views
   function show(view) {
-    ['viewLogin', 'viewHome'].forEach(function (v) { $(v).hidden = v !== view; });
+    ['viewLogin', 'viewHome', 'viewNick'].forEach(function (v) { $(v).hidden = v !== view; });
   }
   function openSheet(id) { $(id).hidden = false; document.body.style.overflow = 'hidden'; }
   function closeSheet(id) { $(id).hidden = true; document.body.style.overflow = ''; }
@@ -144,13 +147,15 @@
       state.token = r.token;
       store('set', KEY.token, r.token);
       store('set', KEY.email, r.email);
-      enterHome(r.clients, r.staff);
+      setNick(r.nickname);
+      enterHome(r.clients, r.staff, r.role);
     });
   }
 
   function logout(silent, reason) {
     if (state.token && !silent) call('logout', { token: state.token });
     state.token = null; state.clients = []; state.client = null; state.staff = false;
+    state.nickname = ''; store('del', 'gab.nick');
     state.items = []; state.staffItems = { forStaff: [], waiting: [] }; setBadge(0);
     store('del', KEY.token); store('del', KEY.client);
     $('formCode').hidden = true; $('formEmail').hidden = false;
@@ -160,18 +165,43 @@
   }
 
   // ------------------------------------------------------------------ home
-  function enterHome(clients, staff) {
+  function enterHome(clients, staff, role) {
     state.clients = clients || [];
     state.staff = !!staff;
+    state.role = role || (staff ? 'staff' : 'client');
     var saved = store('get', KEY.client);
     var link = deepLink();
     state.client = state.clients.filter(function (c) { return c.code === (link.c || saved); })[0] || state.clients[0];
     renderBusiness();
-    show('viewHome');
+    renderGreeting();
+    if (!state.nickname) { askNick(); } else show('viewHome');
     loadHistory();
     refreshItems().then(function () { openDeepLink(link); });
     setupNotifCard();
   }
+
+  // ------------------------------------------------------------------ nickname + greeting
+  function setNick(n) { if (n) { state.nickname = n; store('set', 'gab.nick', n); } }
+  function renderGreeting() { $('greetHi').textContent = state.nickname ? 'Hi, ' + state.nickname + '!' : 'Hi!'; }
+  function askNick() {
+    $('nickFirm').textContent = state.cfg.firmName;
+    $('nick').value = state.nickname || '';
+    msg($('nickMsg'), '');
+    show('viewNick');
+    setTimeout(function () { $('nick').focus(); }, 50);
+  }
+  $('formNick').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var n = $('nick').value.trim();
+    if (!n) { msg($('nickMsg'), 'Please type what I should call you.'); return; }
+    busy($('btnNick'), true, 'Saving…');
+    call('setNickname', { token: state.token, nickname: n }).then(function (r) {
+      busy($('btnNick'), false);
+      if (!r.ok) { if (r.code === 'LOGGED_OUT') return logout(true, r.error); msg($('nickMsg'), r.error); return; }
+      setNick(r.nickname); renderGreeting(); show('viewHome');
+      toast('Nice to meet you, ' + r.nickname + '!');
+    });
+  });
 
   function renderBusiness() {
     $('businessName').textContent = state.client ? state.client.name : (state.staff ? 'Firm staff' : '—');
@@ -246,6 +276,10 @@
     var out = el('button', 'menu-item danger', 'Log out');
     out.type = 'button';
     out.addEventListener('click', function () { closeSheet('sheetMenu'); logout(false); });
+    var nk = el('button', 'menu-item'); nk.type = 'button';
+    nk.innerHTML = '<span>✏️ Change what I call you<small>Right now: ' + (state.nickname || '—').replace(/[<>&]/g, '') + '</small></span>';
+    nk.addEventListener('click', function () { closeSheet('sheetMenu'); askNick(); });
+    body.appendChild(nk);
     body.appendChild(install);
     if (notifState() === 'off' || notifState() === 'ask') {
       var nb = el('button', 'menu-item'); nb.type = 'button';
@@ -491,6 +525,7 @@
     if (state.staff) jobs.push(call('items', { token: state.token, scope: 'staff' }).then(function (r) {
       if (r.ok) state.staffItems = { forStaff: r.forStaff || [], waiting: r.waiting || [] };
     }));
+    if (state.role === 'owner') jobs.push(call('ownerOverview', { token: state.token }).then(function (r) { if (r.ok) state.overview = r; }));
     return Promise.all(jobs).then(renderCounts);
   }
 
@@ -499,6 +534,13 @@
     $('btnAction').hidden = !n;
     $('actionCount').textContent = n;
     $('staffCard').hidden = !state.staff;
+    var owner = state.role === 'owner';
+    $('staffTitle').textContent = owner ? 'Owner' : 'Firm staff';
+    $('staffSheetTitle').textContent = owner ? 'Owner – to check' : 'Firm staff';
+    $('btnOwner').hidden = !owner;
+    var quiet = owner && state.overview ? state.overview.clients.filter(function (c) { return c.quiet; }).length : 0;
+    $('ownerQuietCount').textContent = quiet; $('ownerQuietCount').hidden = !quiet;
+    if (owner && !$('sheetOwner').hidden) renderOwnerSheet();
     var a = state.staffItems.forStaff.length, w = state.staffItems.waiting.length;
     $('staffCheckCount').textContent = a; $('staffCheckCount').classList.toggle('zero', !a);
     $('staffWaitCount').textContent = w;
@@ -656,6 +698,113 @@
     if (document.visibilityState === 'visible' && state.token && !$('viewHome').hidden) { refreshItems(); }
   });
 
+  // ------------------------------------------------------------------ owner: clients overview + tools
+  $('btnOwner').addEventListener('click', function () { renderOwnerSheet(); openSheet('sheetOwner'); refreshItems(); });
+
+  var QUIET_CHOICES = [0, 3, 5, 7, 10, 14, 21, 30];
+  function ownerDo(payload, btn, after) {
+    payload.token = state.token;
+    if (btn) busy(btn, true, 'Please wait…');
+    return call('ownerDo', payload).then(function (r) {
+      if (btn) busy(btn, false);
+      toast(r.ok ? r.text : r.error);
+      if (r.ok) { if (after) after(r); refreshItems(); }
+      return r;
+    });
+  }
+
+  function renderOwnerSheet() {
+    var ov = state.overview, box = $('ownerBody'); box.innerHTML = '';
+    if (!ov) { box.appendChild(el('p', 'muted', 'Loading…')); return; }
+    var quiet = ov.clients.filter(function (c) { return c.quiet; }).length;
+    var open = ov.clients.reduce(function (t, c) { return t + c.withStaff + c.withClient; }, 0);
+    var sum = el('div', 'own-sum');
+    [[ov.clients.filter(function (c) { return c.active; }).length, 'active clients'], [quiet, 'quiet'], [open, 'open questions']].forEach(function (x, i) {
+      var t = el('div', 'own-tile' + (i === 1 && x[0] ? ' warn' : '')); t.appendChild(el('b', '', String(x[0]))); t.appendChild(el('span', '', x[1])); sum.appendChild(t);
+    });
+    box.appendChild(sum);
+
+    box.appendChild(el('h4', 'own-h', 'Clients'));
+    ov.clients.forEach(function (c) { box.appendChild(clientCard(c)); });
+
+    // add a client
+    var add = el('details', 'own-more'); add.appendChild(el('summary', '', '＋ Add a client'));
+    var f = el('div', 'own-form');
+    var code = inputEl('Client code (e.g. C021)'), name = inputEl('Business name'), mail = inputEl('Client\'s Gmail', 'email');
+    var go = el('button', 'btn primary small', 'Add client'); go.type = 'button';
+    go.addEventListener('click', function () { ownerDo({ what: 'addClient', code: code.value, name: name.value, email: mail.value }, go, function () { code.value = name.value = mail.value = ''; }); });
+    [code, name, mail, go].forEach(function (x) { f.appendChild(x); });
+    f.appendChild(el('p', 'hint', 'Tip: same code + another Gmail gives a second person access to the same business.'));
+    add.appendChild(f); box.appendChild(add);
+
+    // staff
+    var st = el('details', 'own-more'); st.appendChild(el('summary', '', '👥 Staff (' + ov.staff.length + ')'));
+    var sf = el('div', 'own-form');
+    ov.staff.forEach(function (e) {
+      var row = el('div', 'own-row'); row.appendChild(el('span', '', e));
+      var rm = el('button', 'link danger-link', 'Remove'); rm.type = 'button';
+      rm.addEventListener('click', function () { if (confirmTwice(rm)) ownerDo({ what: 'removeStaff', email: e }, rm); });
+      row.appendChild(rm); sf.appendChild(row);
+    });
+    var sm = inputEl('Staff Gmail to add', 'email'), sg = el('button', 'btn ghost small', 'Add staff'); sg.type = 'button';
+    sg.addEventListener('click', function () { ownerDo({ what: 'addStaff', email: sm.value }, sg, function () { sm.value = ''; }); });
+    sf.appendChild(sm); sf.appendChild(sg); st.appendChild(sf); box.appendChild(st);
+
+    // log someone out
+    var lo = el('details', 'own-more'); lo.appendChild(el('summary', '', '🔒 Log someone out (lost phone)'));
+    var lf = el('div', 'own-form');
+    var sel = document.createElement('select');
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Choose who…'; sel.appendChild(o0);
+    ov.loggedIn.filter(function (e) { return e !== ov.owner; }).forEach(function (e) { var o = document.createElement('option'); o.value = e; o.textContent = e; sel.appendChild(o); });
+    var lg = el('button', 'btn ghost small', 'Log out on all devices'); lg.type = 'button';
+    lg.addEventListener('click', function () { if (sel.value) ownerDo({ what: 'logout', email: sel.value }, lg); });
+    lf.appendChild(sel); lf.appendChild(lg); lo.appendChild(lf); box.appendChild(lo);
+  }
+
+  function clientCard(c) {
+    var card = el('div', 'own-client' + (c.quiet ? ' quiet' : '') + (c.active ? '' : ' off'));
+    var head = el('div', 'own-head');
+    head.appendChild(el('b', '', c.name));
+    head.appendChild(el('span', 'own-code', c.code + (c.active ? '' : ' · access off')));
+    card.appendChild(head);
+    card.appendChild(el('div', 'own-line' + (c.quiet ? ' red' : ''),
+      c.neverSent ? 'Nothing sent yet' + (c.daysQuiet != null ? ' (added ' + c.daysQuiet + ' day' + (c.daysQuiet === 1 ? '' : 's') + ' ago)' : '')
+                  : 'Last sent: ' + c.lastSent + ' · ' + (c.daysQuiet === 0 ? 'today' : c.daysQuiet + ' day' + (c.daysQuiet === 1 ? '' : 's') + ' ago')));
+    card.appendChild(el('div', 'own-line', 'This month: ' + c.thisMonth + ' document' + (c.thisMonth === 1 ? '' : 's')));
+    if (c.withStaff || c.withClient) {
+      var bits = [];
+      if (c.withStaff) bits.push(c.withStaff + ' to check');
+      if (c.withClient) bits.push(c.withClient + ' waiting for client' + (c.oldestAsk ? ' (' + c.oldestAsk + ' day' + (c.oldestAsk === 1 ? '' : 's') + ')' : ''));
+      card.appendChild(el('div', 'own-line amber', 'Open questions: ' + bits.join(' · ')));
+    }
+    var ctr = el('div', 'own-ctrls');
+    var rem = el('button', 'btn ghost small', '🔔 Remind to send'); rem.type = 'button';
+    rem.disabled = !c.active;
+    rem.addEventListener('click', function () { ownerDo({ what: 'remind', code: c.code }, rem); });
+    ctr.appendChild(rem);
+    var ql = el('label', 'own-quiet'); ql.appendChild(document.createTextNode('Alert if quiet'));
+    var qs = document.createElement('select');
+    var choices = QUIET_CHOICES.indexOf(c.quietDays) === -1 ? QUIET_CHOICES.concat([c.quietDays]).sort(function (a, b) { return a - b; }) : QUIET_CHOICES;
+    choices.forEach(function (d) { var o = document.createElement('option'); o.value = d; o.textContent = d ? d + ' days' : 'Never'; qs.appendChild(o); });
+    qs.value = String(c.quietDays);
+    qs.addEventListener('change', function () { ownerDo({ what: 'quietDays', code: c.code, days: Number(qs.value) }); });
+    ql.appendChild(qs); ctr.appendChild(ql);
+    var acc = el('button', 'link ' + (c.active ? 'danger-link' : ''), c.active ? 'Switch off access' : 'Switch access on'); acc.type = 'button';
+    acc.addEventListener('click', function () { if (!c.active || confirmTwice(acc)) ownerDo({ what: 'access', code: c.code, on: !c.active }, acc); });
+    ctr.appendChild(acc);
+    card.appendChild(ctr);
+    return card;
+  }
+
+  function inputEl(ph, type) { var i = document.createElement('input'); i.type = type || 'text'; i.placeholder = ph; if (type === 'email') i.inputMode = 'email'; return i; }
+  /** Risky buttons need a second tap. */
+  function confirmTwice(btn) {
+    if (btn.dataset.sure) return true;
+    btn.dataset.sure = '1'; var old = btn.textContent; btn.textContent = 'Tap again to confirm';
+    setTimeout(function () { delete btn.dataset.sure; btn.textContent = old; }, 3000);
+    return false;
+  }
+
   // ------------------------------------------------------------------ opening from a notification
   function deepLink(url) {
     var q = (url || location.search).replace(/^[^?]*\?/, ''), o = {};
@@ -664,9 +813,10 @@
   }
   function openDeepLink(link) {
     if (!link) return;
-    if (link.staff && state.staff) { state.staffTab = 'check'; renderStaffSheet(); openSheet('sheetStaff'); }
+    if (link.owner && state.role === 'owner') { renderOwnerSheet(); openSheet('sheetOwner'); }
+    else if (link.staff && state.staff) { state.staffTab = 'check'; renderStaffSheet(); openSheet('sheetStaff'); }
     else if (link.action && state.items.length) { renderActionSheet(); openSheet('sheetAction'); }
-    if ((link.staff || link.action) && history.replaceState) history.replaceState(null, '', location.pathname);
+    if ((link.staff || link.action || link.owner) && history.replaceState) history.replaceState(null, '', location.pathname);
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function (e) {
     var d = e.data || {};
@@ -753,7 +903,7 @@
     var now = function () { return new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }); };
     var db = demoEngine.db || (demoEngine.db = {
       access: { 'demo@gmail.com': [{ code: 'C000', name: 'Dummy Client (for testing)' }, { code: 'C000B', name: 'Dummy Client – Branch' }] },
-      staff: { 'staff@gmail.com': true },
+      staff: { 'staff@gmail.com': true, 'owner@gmail.com': true },
       sessions: {}, items: [
         { clientCode: 'C000', received: 'Oct 1, 2026 9:12 AM', docType: 'Sales Invoice', docNo: '0012345', total: 11200, party: 'ABC Construction Corp.', period: '2026-09', note: '', fileName: 'invoice.jpg', status: 'Encoded', remarks: '' },
         { clientCode: 'C000', received: 'Oct 2, 2026 4:40 PM', docType: 'Waiting to be read', period: '2026-10', note: 'Gas receipts', fileName: 'IMG_2231.jpg', status: 'New', remarks: '' }
@@ -787,8 +937,16 @@
         if (p.code !== '123456') return reply({ ok: false, error: 'Wrong code. Please check your email and try again.' });
         var t = 'demo' + Math.random().toString(36).slice(2) + Date.now().toString(36) + 'xxxxxxxxxxxxxxxx';
         db.sessions[t] = p.email;
-        return reply({ ok: true, token: t, email: p.email, clients: allowed(p.email), staff: isStaff(p.email) });
-      case 'me': return reply({ ok: true, email: who(), clients: allowed(who()), staff: isStaff(who()) });
+        return reply({ ok: true, token: t, email: p.email, nickname: (db.nick || {})[p.email] || '', clients: allowed(p.email), staff: isStaff(p.email), role: p.email === 'owner@gmail.com' ? 'owner' : isStaff(p.email) ? 'staff' : 'client' });
+      case 'me': return reply({ ok: true, email: who(), nickname: (db.nick || {})[who()] || '', clients: allowed(who()), staff: isStaff(who()), role: who() === 'owner@gmail.com' ? 'owner' : isStaff(who()) ? 'staff' : 'client' });
+      case 'ownerOverview':
+        return reply({ ok: true, owner: 'owner@gmail.com', staff: ['staff@gmail.com'], loggedIn: ['demo@gmail.com', 'staff@gmail.com'], clients: [
+          { code: 'C020', name: 'Other Store', active: true, lastSent: 'Sep 27, 2026', daysQuiet: 10, quietDays: 7, quiet: true, thisMonth: 0, withStaff: 0, withClient: 1, oldestAsk: 4 },
+          { code: 'C000', name: 'Dummy Client (for testing)', active: true, lastSent: 'Oct 2, 2026', daysQuiet: 5, quietDays: 7, quiet: false, thisMonth: 2, withStaff: 1, withClient: 1, oldestAsk: 1 },
+          { code: 'C017', name: 'Juan Dela Cruz Hardware', active: true, lastSent: 'Oct 6, 2026', daysQuiet: 1, quietDays: 14, quiet: false, thisMonth: 6, withStaff: 1, withClient: 0, oldestAsk: 0 },
+          { code: 'C030', name: 'New Bakery', active: true, lastSent: '', neverSent: true, daysQuiet: 2, quietDays: 7, quiet: false, thisMonth: 0, withStaff: 0, withClient: 0, oldestAsk: 0 }] });
+      case 'ownerDo': return reply({ ok: true, text: 'Done (demo).' });
+      case 'setNickname': db.nick = db.nick || {}; db.nick[who()] = String(p.nickname).trim(); return reply({ ok: !!db.nick[who()], nickname: db.nick[who()], error: 'Please type a name.' });
       case 'history': return reply({ ok: true, items: db.items.filter(function (i) { return i.clientCode === p.clientCode; }).slice().reverse() });
       case 'submit':
         db.items.push({ clientCode: p.clientCode, received: now(), docType: 'Waiting to be read', period: p.period, note: p.note, fileName: p.fileName, status: 'New', remarks: '' });
@@ -833,7 +991,7 @@
     if (state.token) {
       // Show home right away; confirm the login is still valid in the background.
       call('me', { token: state.token }).then(function (r) {
-        if (r.ok) enterHome(r.clients, r.staff);
+        if (r.ok) { setNick(r.nickname); enterHome(r.clients, r.staff, r.role); }
         else if (r.network) { show('viewLogin'); msg($('loginMsg'), r.error); }
         else logout(true, r.error);
       });
