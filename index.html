@@ -48,6 +48,19 @@
     </div>
   </main>
 
+  <!-- ============ NICKNAME (first time) ============ -->
+  <main id="viewNick" class="view login" hidden>
+    <div class="login-card">
+      <img src="icons/emblem.png" alt="" class="nick-avatar">
+      <div class="bubble big">Hi! I'm <b>Gabbrielle</b> 👋 your helper from <span id="nickFirm">B.R. Ramones Accounting Firm</span>.<br><br>How would you like me to call you?</div>
+      <form id="formNick" class="stack" novalidate>
+        <input id="nick" type="text" maxlength="30" autocomplete="nickname" placeholder="Your nickname, e.g. Ate Joy" required>
+        <button class="btn primary" type="submit" id="btnNick">That's me</button>
+      </form>
+      <p id="nickMsg" class="msg" role="alert" hidden></p>
+    </div>
+  </main>
+
   <!-- ============ HOME ============ -->
   <div id="viewHome" class="view" hidden>
     <header class="topbar">
@@ -62,13 +75,19 @@
     </header>
 
     <main class="home">
+      <section class="greet">
+        <img src="icons/emblem.png" alt="" class="greet-avatar">
+        <div class="bubble"><span id="greetHi">Hi!</span> I'm Gabbrielle. How can I help you today?</div>
+      </section>
+
       <section class="card staff" id="staffCard" hidden>
-        <div class="card-head"><h3>Firm staff</h3></div>
+        <div class="card-head"><h3 id="staffTitle">Firm staff</h3></div>
         <p class="muted small" id="staffSummary"></p>
         <div class="staff-btns">
           <button type="button" class="staff-btn" id="btnStaffCheck"><span class="count" id="staffCheckCount">0</span>To check</button>
           <button type="button" class="staff-btn" id="btnStaffWait"><span class="count wait" id="staffWaitCount">0</span>Waiting for client</button>
         </div>
+        <button type="button" class="staff-btn owner-btn" id="btnOwner" hidden>📊 Clients overview &amp; owner tools <span class="count" id="ownerQuietCount" hidden>0</span></button>
       </section>
 
       <section class="card notif" id="notifCard" hidden>
@@ -80,8 +99,7 @@
       </section>
 
       <section class="hero" id="sendSection">
-        <h2>Send documents</h2>
-        <p class="muted">Receipts, invoices, 2307s, bank statements — snap a photo or pick files.</p>
+        <p class="muted hero-sub">📤 Send documents — receipts, invoices, 2307s, bank statements. Snap a photo or pick files.</p>
         <div class="big-actions">
           <label class="big-btn camera">
             <input id="inCamera" type="file" accept="image/*" capture="environment" hidden>
@@ -176,12 +194,20 @@
   <!-- ============ STAFF: TO CHECK ============ -->
   <div id="sheetStaff" class="sheet-wrap" hidden>
     <div class="sheet">
-      <div class="sheet-head"><h3>Firm staff</h3><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
+      <div class="sheet-head"><h3 id="staffSheetTitle">Firm staff</h3><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
       <div class="chips tabs">
         <button type="button" class="chip" id="tabCheck" aria-pressed="true">To check</button>
         <button type="button" class="chip" id="tabWait" aria-pressed="false">Waiting for client</button>
       </div>
       <div id="staffList" class="qa-list"></div>
+    </div>
+  </div>
+
+  <!-- ============ OWNER ============ -->
+  <div id="sheetOwner" class="sheet-wrap" hidden>
+    <div class="sheet">
+      <div class="sheet-head"><h3>Clients overview</h3><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
+      <div id="ownerBody"></div>
     </div>
   </div>
 
