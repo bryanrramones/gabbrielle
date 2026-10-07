@@ -767,21 +767,85 @@
       openViewer(it._img);
     });
   }
+  // ---- photo viewer: pinch to zoom, drag to move, double-tap to zoom, ✕ / Back to close
+  var VZ = { s: 1, tx: 0, ty: 0, pts: {}, pinch: null, pan: null, moved: false, lastTap: 0 };
+  var VZ_MAX = 5;
+  function vzApply() { $('viewerImg').style.transform = 'translate(' + VZ.tx + 'px,' + VZ.ty + 'px) scale(' + VZ.s + ')'; $('viewer').classList.toggle('zoom', VZ.s > 1.01); }
+  function vzClamp() {
+    var img = $('viewerImg'), v = $('viewer'), W = img.offsetWidth * VZ.s, H = img.offsetHeight * VZ.s, bx = img.offsetLeft, by = img.offsetTop, vw = v.clientWidth, vh = v.clientHeight;
+    VZ.tx = W <= vw ? (vw - W) / 2 - bx : Math.min(-bx, Math.max(vw - W - bx, VZ.tx));
+    VZ.ty = H <= vh ? (vh - H) / 2 - by : Math.min(-by, Math.max(vh - H - by, VZ.ty));
+  }
+  /** Zoom to scale s keeping the screen point (px, py) still. */
+  function vzZoomAt(s, px, py) {
+    var img = $('viewerImg'), r = $('viewer').getBoundingClientRect();
+    s = Math.max(1, Math.min(VZ_MAX, s));
+    var bx = img.offsetLeft, by = img.offsetTop, x = px - r.left, y = py - r.top;
+    var u = (x - bx - VZ.tx) / VZ.s, w = (y - by - VZ.ty) / VZ.s;
+    VZ.s = s; VZ.tx = x - bx - u * s; VZ.ty = y - by - w * s;
+    vzClamp(); vzApply();
+  }
+  function vzReset() { VZ.s = 1; VZ.tx = 0; VZ.ty = 0; VZ.pts = {}; VZ.pinch = null; VZ.pan = null; vzApply(); }
+
   function openViewer(src) {
     var v = $('viewer'), img = $('viewerImg'), pdf = /^data:application\/pdf/.test(src);
     if (pdf) { var w = window.open(); if (w) w.document.write('<iframe src="' + src + '" style="border:0;width:100%;height:100%"></iframe>'); return; }
-    img.src = src; v.classList.remove('zoom'); v.hidden = false; v.scrollTop = 0;
+    img.src = src; vzReset(); v.hidden = false;
     try { history.pushState({ viewer: 1 }, ''); } catch (e) {}
   }
   function closeViewer(fromBack) {
     var v = $('viewer'); if (v.hidden) return;
-    v.hidden = true; v.classList.remove('zoom'); $('viewerImg').src = '';
+    v.hidden = true; vzReset(); $('viewerImg').src = '';
     if (!fromBack) { try { if (history.state && history.state.viewer) history.back(); } catch (e) {} }
   }
-  $('viewer').addEventListener('click', function (e) {
-    if (e.target === $('viewerImg')) { $('viewer').classList.toggle('zoom'); return; }   // tap the photo = zoom
-    closeViewer(false);                                                                    // tap outside or ✕ = close
-  });
+  $('viewerClose').addEventListener('click', function (e) { e.stopPropagation(); closeViewer(false); });
+  (function () {
+    var v = $('viewer');
+    var dist = function (a, b) { return Math.hypot(a.x - b.x, a.y - b.y); };
+    v.addEventListener('pointerdown', function (e) {
+      if (e.target === $('viewerClose')) return;
+      try { v.setPointerCapture(e.pointerId); } catch (x) {}
+      VZ.pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var ids = Object.keys(VZ.pts);
+      if (ids.length === 1) { VZ.moved = false; VZ.pan = { x: e.clientX, y: e.clientY, tx: VZ.tx, ty: VZ.ty }; VZ.downOn = e.target; }
+      if (ids.length === 2) {
+        var a = VZ.pts[ids[0]], b = VZ.pts[ids[1]];
+        VZ.pinch = { d: dist(a, b), s: VZ.s }; VZ.pan = null; VZ.moved = true;
+      }
+    });
+    v.addEventListener('pointermove', function (e) {
+      if (!VZ.pts[e.pointerId]) return;
+      VZ.pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var ids = Object.keys(VZ.pts);
+      if (ids.length >= 2 && VZ.pinch) {
+        var a = VZ.pts[ids[0]], b = VZ.pts[ids[1]];
+        vzZoomAt(VZ.pinch.s * dist(a, b) / VZ.pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2);
+      } else if (VZ.pan) {
+        var dx = e.clientX - VZ.pan.x, dy = e.clientY - VZ.pan.y;
+        if (Math.abs(dx) + Math.abs(dy) > 6) VZ.moved = true;
+        if (VZ.s > 1) { VZ.tx = VZ.pan.tx + dx; VZ.ty = VZ.pan.ty + dy; vzClamp(); vzApply(); }
+      }
+    });
+    var up = function (e) {
+      if (!VZ.pts[e.pointerId]) return;
+      delete VZ.pts[e.pointerId];
+      var left = Object.keys(VZ.pts);
+      if (left.length === 1) { var p = VZ.pts[left[0]]; VZ.pinch = null; VZ.pan = { x: p.x, y: p.y, tx: VZ.tx, ty: VZ.ty }; return; }
+      if (left.length) return;
+      VZ.pinch = null; VZ.pan = null;
+      if (VZ.moved || e.type === 'pointercancel') return;
+      // a tap
+      var now = Date.now();
+      if (VZ.downOn === $('viewerImg')) {
+        if (now - VZ.lastTap < 320) { VZ.lastTap = 0; if (VZ.s > 1.01) { vzReset(); } else vzZoomAt(2.5, e.clientX, e.clientY); }
+        else VZ.lastTap = now;
+      } else if (VZ.s <= 1.01) closeViewer(false);   // tap on the dark area closes (only when not zoomed)
+    };
+    v.addEventListener('pointerup', up);
+    v.addEventListener('pointercancel', up);
+    v.addEventListener('wheel', function (e) { e.preventDefault(); vzZoomAt(VZ.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); }, { passive: false });
+    window.addEventListener('resize', function () { if (!v.hidden) { vzClamp(); vzApply(); } });
+  })();
   window.addEventListener('popstate', function () { closeViewer(true); });             // phone Back button
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeViewer(false); });
 
