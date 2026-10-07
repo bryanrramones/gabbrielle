@@ -212,11 +212,12 @@
     if (state.client) store('set', KEY.client, state.client.code);
   }
 
-  function loadHistory() {
-    if (!state.client) return;
+  function loadHistory(quiet) {
+    if (!state.client) return Promise.resolve();
     var ul = $('history');
-    ul.innerHTML = '<li class="muted">Loading…</li>';
-    call('history', { token: state.token, clientCode: state.client.code }).then(function (r) {
+    if (quiet !== true) ul.innerHTML = '<li class="muted">Loading…</li>';
+    return call('history', { token: state.token, clientCode: state.client.code }).then(function (r) {
+      if (quiet === true && !r.ok) return;
       if (!r.ok) {
         if (r.code === 'LOGGED_OUT') return logout(true, r.error);
         ul.innerHTML = ''; var li = document.createElement('li'); li.className = 'muted'; li.textContent = r.error; ul.appendChild(li); return;
@@ -771,6 +772,42 @@
   $('viewer').addEventListener('click', function () { $('viewer').hidden = true; $('viewerImg').src = ''; });
 
   $('btnRefresh').addEventListener('click', refreshItems);
+
+  // ------------------------------------------------------------------ keeping the screen fresh
+  /** Every minute while the app is open on the home screen (and no window is open on top), check for news quietly. */
+  function quietRefresh() {
+    if (!state.token || $('viewHome').hidden || document.visibilityState !== 'visible' || !navigator.onLine) return Promise.resolve();
+    return Promise.all([refreshItems(), loadHistory(true)]);
+  }
+  setInterval(function () {
+    var sheetOpen = Array.prototype.some.call(document.querySelectorAll('.sheet-wrap'), function (w) { return !w.hidden; });
+    if (!sheetOpen && !state.sending) quietRefresh();
+  }, 60000);
+
+  /** Pull down to refresh (phones switch this off for home-screen apps, so Gabbrielle does it itself). */
+  (function pullToRefresh() {
+    var startY = null, dist = 0, busyNow = false, ptr = $('ptr'), LIMIT = 70;
+    function canPull() { return !busyNow && !$('viewHome').hidden && document.body.style.overflow !== 'hidden' && (window.scrollY || document.documentElement.scrollTop) <= 0; }
+    window.addEventListener('touchstart', function (e) { startY = canPull() && e.touches.length === 1 ? e.touches[0].clientY : null; dist = 0; }, { passive: true });
+    window.addEventListener('touchmove', function (e) {
+      if (startY === null) return;
+      dist = Math.max(0, e.touches[0].clientY - startY);
+      if (dist < 8) { ptr.hidden = true; return; }
+      ptr.hidden = false;
+      var d = Math.min(dist, LIMIT * 1.4);
+      ptr.style.transform = 'translate(-50%, ' + (d * 0.6) + 'px)';
+      ptr.textContent = dist > LIMIT ? '↻ Release to refresh' : '↓ Pull to refresh';
+    }, { passive: true });
+    window.addEventListener('touchend', function () {
+      if (startY === null) return;
+      startY = null;
+      if (dist <= LIMIT) { ptr.hidden = true; return; }
+      busyNow = true; ptr.textContent = 'Refreshing…'; ptr.classList.add('spin-on');
+      quietRefresh().then(function () {
+        busyNow = false; ptr.classList.remove('spin-on'); ptr.hidden = true; toast('Up to date ✓');
+      });
+    });
+  })();
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible' && state.token && !$('viewHome').hidden) { refreshItems(); }
   });

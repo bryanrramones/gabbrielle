@@ -310,3 +310,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 .cat-sub span { font-size: 13px; color: var(--muted); }
 .cat-sub.on { border-color: var(--c-tax); background: #eef4ff; }
 .send-chip { display: inline-block; color: #fff; border-radius: 20px; padding: 4px 12px; font-size: 15px; }
+
+/* ---------- Pull to refresh ---------- */
+.ptr { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 50%; transform: translate(-50%, 0); z-index: 15; background: var(--navy); color: #fff;
+  font-size: 13px; font-weight: 700; padding: 8px 14px; border-radius: 20px; box-shadow: var(--shadow); pointer-events: none; }
+.ptr.spin-on { animation: ptrpulse 1s ease-in-out infinite; }
+@keyframes ptrpulse { 50% { opacity: .6; } }
