@@ -1,6 +1,6 @@
 // Keeps the app's screens on the phone so it opens instantly, even on a weak signal.
 // Sending documents always needs internet.
-const CACHE = 'gabbrielle-v5';
+const CACHE = 'gabbrielle-v6';
 const SHELL = [
   './', './index.html', './app.css', './app.js', './scanner.js', './config.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/emblem.png', './icons/logo-full.png', './icons/favicon.png'
@@ -25,7 +25,7 @@ self.addEventListener('fetch', e => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy));
       return res;
-    }).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
+    }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('./index.html')))
   );
 });
 
