@@ -174,6 +174,7 @@
     state.client = state.clients.filter(function (c) { return c.code === (link.c || saved); })[0] || state.clients[0];
     renderBusiness();
     renderGreeting();
+    renderCategories();
     if (!state.nickname) { askNick(); } else show('viewHome');
     loadHistory();
     refreshItems().then(function () { openDeepLink(link); });
@@ -230,7 +231,8 @@
         var ico = el('div', 'h-ico', /pdf$/i.test(it.fileName) ? '📄' : '🧾');
         var main = el('div', 'h-main');
         var waiting = /waiting to be read/i.test(it.docType);
-        main.appendChild(el('div', 'h-title', (waiting ? '🕗 Being read tonight' : it.docType + (it.docNo ? ' No. ' + it.docNo : '')) + ' · ' + monthLabel(it.period)));
+        var chose = waiting ? String(it.docType).split(' – ').slice(1).join(' – ') : '';
+        main.appendChild(el('div', 'h-title', (waiting ? '🕗 Being read tonight' + (chose ? ' · ' + chose : '') : it.docType + (it.docNo ? ' No. ' + it.docNo : '')) + ' · ' + monthLabel(it.period)));
         if (it.total != null && it.total !== '') main.appendChild(el('div', 'h-amt', peso(it.total) + (it.party ? ' · ' + it.party : '')));
         main.appendChild(el('div', 'h-sub', it.received + (it.note ? ' — ' + it.note : '')));
         if (it.remarks) main.appendChild(el('div', 'h-remark', 'Firm: ' + it.remarks));
@@ -315,6 +317,76 @@
     openSheet('sheetMenu');
   }
 
+  // ------------------------------------------------------------------ the buttons: what are you sending?
+  var CAT_GROUPS = [
+    { title: 'Money in', cls: 'g-in', items: [
+      { key: 'sales', ico: '🧾', label: 'Sales Invoices', desc: 'Cash & charge invoices you issued, delivery receipts' },
+      { key: 'collections', ico: '💵', label: 'Collections', desc: 'Official / collection receipts you issued' } ] },
+    { title: 'Money out', cls: 'g-out', items: [
+      { key: 'purchases', ico: '🛒', label: 'Purchases', desc: 'Supplier invoices & receipts for things you bought' },
+      { key: 'bills', ico: '💡', label: 'Bills & Utilities', desc: 'Electric, water, phone, internet, rent, billing statements' },
+      { key: 'expenses', ico: '📝', label: 'Other Expenses', desc: 'Cash vouchers, fuel, transport, repairs, other receipts' },
+      { key: 'payroll', ico: '👥', label: 'Payroll', desc: 'Salaries, payslips, SSS / PhilHealth / Pag-IBIG', cls: 'g-pay' } ] },
+    { title: 'BIR & bank', cls: 'g-tax', items: [
+      { key: 'f2307', ico: '🏛️', label: 'BIR 2307', desc: 'Certificate of tax withheld',
+        subs: [{ key: 'received', label: 'Received from my customers', desc: 'A customer withheld tax from their payment to you' },
+               { key: 'issued', label: 'Issued to my suppliers', desc: 'You withheld tax from your payment to a supplier' }] },
+      { key: 'bir', ico: '📑', label: 'BIR Forms & Payments', desc: 'Filed returns, payment forms, BIR letters' },
+      { key: 'bank', ico: '🏦', label: 'Bank', desc: 'Bank statements, deposit slips', cls: 'g-bank' } ] }
+  ];
+  var CAT_UNSURE = { key: 'unsure', ico: '❓', label: 'Not sure? Just send it', desc: 'The firm will sort it out', cls: 'g-unsure' };
+
+  function catByKey(k) {
+    var found = k === CAT_UNSURE.key ? CAT_UNSURE : null;
+    CAT_GROUPS.forEach(function (g) { g.items.forEach(function (c) { if (c.key === k) found = Object.assign({ cls: g.cls }, c, { cls: c.cls || g.cls }); }); });
+    return found;
+  }
+
+  function renderCategories() {
+    var box = $('catGrid'); box.innerHTML = '';
+    CAT_GROUPS.forEach(function (g) {
+      box.appendChild(el('div', 'cat-group-title', g.title));
+      var grid = el('div', 'cat-grid');
+      g.items.forEach(function (c) { grid.appendChild(catTile(Object.assign({}, c, { cls: c.cls || g.cls }))); });
+      box.appendChild(grid);
+    });
+    var u = catTile(CAT_UNSURE); u.classList.add('wide'); box.appendChild(u);
+  }
+
+  function catTile(c) {
+    var b = el('button', 'cat-tile ' + c.cls); b.type = 'button';
+    b.appendChild(el('span', 'cat-ico', c.ico));
+    b.appendChild(el('span', 'cat-label', c.label));
+    b.appendChild(el('span', 'cat-desc', c.desc));
+    b.addEventListener('click', function () { openCategory(c.key); });
+    return b;
+  }
+
+  function openCategory(key) {
+    if (!state.client) { toast('Choose a business first.'); return; }
+    var c = catByKey(key);
+    state.cat = { key: key, sub: null, label: c.label, ico: c.ico, cls: c.cls };
+    $('catHead').className = 'cat-head ' + c.cls;
+    $('catIco').textContent = c.ico; $('catTitle').textContent = c.label; $('catDesc').textContent = c.desc;
+    var subs = $('catSubs'); subs.innerHTML = '';
+    if (c.subs) {
+      subs.appendChild(el('p', 'cat-sub-q', 'Which one is it?'));
+      c.subs.forEach(function (s) {
+        var b = el('button', 'cat-sub'); b.type = 'button';
+        b.appendChild(el('b', '', s.label)); b.appendChild(el('span', '', s.desc));
+        b.addEventListener('click', function () {
+          state.cat.sub = s.key; state.cat.label = c.label + ' – ' + s.label.toLowerCase();
+          subs.querySelectorAll('.cat-sub').forEach(function (x) { x.classList.toggle('on', x === b); });
+          $('catActions').hidden = false;
+        });
+        subs.appendChild(b);
+      });
+    }
+    subs.hidden = !c.subs;
+    $('catActions').hidden = !!c.subs;
+    openSheet('sheetCat');
+  }
+
   // ------------------------------------------------------------------ choosing files
   ['inCamera', 'inFiles', 'inMore'].forEach(function (id) {
     $(id).addEventListener('change', function () {
@@ -335,10 +407,14 @@
     });
     if (skipped) toast(skipped + ' file(s) skipped — only photos and PDFs up to ' + state.cfg.maxFileMb + ' MB.');
     if (!state.pending.length) return;
+    if (!$('sheetCat').hidden) closeSheet('sheetCat');
     if ($('sheetSend').hidden) openSend(); else renderDocs();
   }
 
   function openSend() {
+    var c = state.cat || catByKey('unsure');
+    $('sendTitle').innerHTML = '';
+    $('sendTitle').appendChild(el('span', 'send-chip ' + (c.cls || 'g-unsure'), c.ico + ' ' + c.label));
     renderPeriods();
     msg($('sendMsg'), '');
     renderDocs();
@@ -445,7 +521,8 @@
       if (i >= queue.length || loggedOut) return finish();
       var p = queue[i]; p.status = 'sending'; renderDocs();
       prepare(p.file).then(function (f) {
-        return call('submit', { token: state.token, clientCode: state.client.code, fileName: f.name, mimeType: f.type, data: f.data, period: period, note: note });
+        return call('submit', { token: state.token, clientCode: state.client.code, fileName: f.name, mimeType: f.type, data: f.data, period: period, note: note,
+                                category: state.cat ? state.cat.key : 'unsure', sub: state.cat ? state.cat.sub : null });
       }, function () { return { ok: false, error: 'This file could not be opened.' }; }).then(function (r) {
         if (r.ok) { p.status = 'sent'; sent++; }
         else { p.status = 'error'; failed++; p.error = r.error; if (r.code === 'LOGGED_OUT') loggedOut = r.error; }
@@ -949,7 +1026,7 @@
       case 'setNickname': db.nick = db.nick || {}; db.nick[who()] = String(p.nickname).trim(); return reply({ ok: !!db.nick[who()], nickname: db.nick[who()], error: 'Please type a name.' });
       case 'history': return reply({ ok: true, items: db.items.filter(function (i) { return i.clientCode === p.clientCode; }).slice().reverse() });
       case 'submit':
-        db.items.push({ clientCode: p.clientCode, received: now(), docType: 'Waiting to be read', period: p.period, note: p.note, fileName: p.fileName, status: 'New', remarks: '' });
+        db.items.push({ clientCode: p.clientCode, received: now(), docType: 'Waiting to be read' + (p.category && p.category !== 'unsure' ? ' – ' + catByKey(p.category).label : ''), period: p.period, note: p.note, fileName: p.fileName, status: 'New', remarks: '' });
         return new Promise(function (res) { setTimeout(function () { res({ ok: true }); }, 700); });
       case 'items':
         if (p.scope === 'staff') {

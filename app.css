@@ -283,3 +283,30 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 .greet .bubble { flex: 1; font-weight: 600; color: var(--navy); }
 .greet #greetHi { color: var(--sky); }
 .hero-sub { margin: 0 0 12px !important; font-size: 14px; }
+
+/* ---------- Upload buttons by category ---------- */
+:root { --c-in: #1e8e5a; --c-out: #d9822b; --c-pay: #7b4bb7; --c-tax: #2563c9; --c-bank: #0f8b8d; --c-unsure: #6b7785; }
+.cat-title { font-size: 18px; color: var(--navy); margin: 14px 0 2px; }
+.cat-group-title { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); margin: 12px 0 6px; }
+.cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cat-tile { appearance: none; border: 0; border-radius: 14px; padding: 12px; min-height: 104px; text-align: left; cursor: pointer; color: #fff;
+  display: flex; flex-direction: column; gap: 4px; font: inherit; box-shadow: var(--shadow); }
+.cat-tile:active { transform: scale(.98); }
+.cat-tile.wide { width: 100%; min-height: 0; margin-top: 12px; flex-direction: row; align-items: center; gap: 10px; }
+.cat-tile.wide .cat-desc { margin-left: auto; }
+.cat-ico { font-size: 24px; line-height: 1; }
+.cat-label { font-weight: 800; font-size: 15px; line-height: 1.2; }
+.cat-desc { font-size: 12px; opacity: .92; line-height: 1.3; }
+.g-in { background: var(--c-in); } .g-out { background: var(--c-out); } .g-pay { background: var(--c-pay); }
+.g-tax { background: var(--c-tax); } .g-bank { background: var(--c-bank); } .g-unsure { background: var(--c-unsure); }
+.cat-head { display: flex; align-items: flex-start; gap: 12px; color: #fff; border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+.cat-head .icon-btn { color: #fff; margin: -8px -6px 0 auto; }
+.cat-head-ico { font-size: 30px; line-height: 1; }
+.cat-head h3 { color: #fff; font-size: 18px; }
+.cat-head p { margin: 2px 0 0; font-size: 13px; opacity: .92; }
+.cat-subs { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.cat-sub-q { margin: 0; font-weight: 700; color: var(--navy); }
+.cat-sub { appearance: none; text-align: left; border: 2px solid var(--line); background: #fff; border-radius: 12px; padding: 12px; font: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.cat-sub span { font-size: 13px; color: var(--muted); }
+.cat-sub.on { border-color: var(--c-tax); background: #eef4ff; }
+.send-chip { display: inline-block; color: #fff; border-radius: 20px; padding: 4px 12px; font-size: 15px; }

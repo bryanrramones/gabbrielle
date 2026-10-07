@@ -99,24 +99,13 @@
       </section>
 
       <section class="hero" id="sendSection">
-        <p class="muted hero-sub">📤 Send documents — receipts, invoices, 2307s, bank statements. Snap a photo or pick files.</p>
-        <div class="big-actions">
-          <label class="big-btn camera">
-            <input id="inCamera" type="file" accept="image/*" capture="environment" hidden>
-            <span class="big-ico" aria-hidden="true">📷</span>
-            <span>Take a photo</span>
-          </label>
-          <label class="big-btn files">
-            <input id="inFiles" type="file" accept="image/*,application/pdf" multiple hidden>
-            <span class="big-ico" aria-hidden="true">📎</span>
-            <span>Choose files</span>
-          </label>
-        </div>
         <button type="button" class="action-btn" id="btnAction" hidden>
           <span class="action-ico" aria-hidden="true">!</span>
           <span class="action-text">Needs immediate action<small>Tap to see what the firm needs</small></span>
           <span class="action-count" id="actionCount">0</span>
         </button>
+        <h3 class="cat-title">What are you sending today?</h3>
+        <div id="catGrid"></div>
       </section>
 
       <section class="card" id="historyCard">
@@ -179,6 +168,30 @@
     <div class="sheet">
       <div class="sheet-head"><h3 id="menuTitle">Menu</h3><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
       <div id="menuBody"></div>
+    </div>
+  </div>
+
+  <!-- ============ ONE BUTTON TAPPED: take a photo / choose files ============ -->
+  <div id="sheetCat" class="sheet-wrap" hidden>
+    <div class="sheet">
+      <div class="cat-head" id="catHead">
+        <span class="cat-head-ico" id="catIco"></span>
+        <div class="cat-head-text"><h3 id="catTitle"></h3><p id="catDesc"></p></div>
+        <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+      </div>
+      <div id="catSubs" class="cat-subs" hidden></div>
+      <div class="big-actions" id="catActions">
+        <label class="big-btn camera">
+          <input id="inCamera" type="file" accept="image/*" capture="environment" hidden>
+          <span class="big-ico" aria-hidden="true">📷</span>
+          <span>Take a photo</span>
+        </label>
+        <label class="big-btn files">
+          <input id="inFiles" type="file" accept="image/*,application/pdf" multiple hidden>
+          <span class="big-ico" aria-hidden="true">📎</span>
+          <span>Choose files</span>
+        </label>
+      </div>
     </div>
   </div>
 
