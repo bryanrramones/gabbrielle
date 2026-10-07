@@ -988,7 +988,7 @@
     return card;
   }
 
-  // ------------------------------------------------------------------ owner: to post in Claudine
+  // ------------------------------------------------------------------ owner: to post in Cl@ud
   $('btnToPost').addEventListener('click', function () { openPostSheet(); });
   function openPostSheet() {
     var box = $('postList'); box.innerHTML = ''; box.appendChild(el('p', 'muted', 'Loading…'));
@@ -997,14 +997,14 @@
       box.innerHTML = '';
       if (!r.ok) { if (r.code === 'LOGGED_OUT') return logout(true, r.error); box.appendChild(el('p', 'muted', r.error || 'Could not load the list.')); return; }
       var items = r.items || [];
-      if (!items.length) { box.appendChild(el('p', 'muted', 'Nothing to post. Claudine has everything. 🎉')); return; }
+      if (!items.length) { box.appendChild(el('p', 'muted', 'Nothing to post. Cl@ud has everything. 🎉')); return; }
       items.forEach(function (it) { box.appendChild(postCard(it)); });
     });
   }
 
   function acctText(a) { return a ? a[0] + (a[1] ? ' ' + a[1] : '') : '—'; }
 
-  /** One draft from Claudine. */
+  /** One draft from Cl@ud. */
   var BOOK_NAMES = { CDJ: 'Cash Disbursements', CRJ: 'Cash Receipts', GJ: 'General Journal', Certificates: '2307 Register' };
   function bookName(b) {
     var k = String(b || '').split(/\s*[–-]\s*/)[0].trim();
@@ -1014,7 +1014,7 @@
   function money(v) { return peso(v).replace('₱', ''); }
   function r2(v) { return Math.round(v * 100) / 100; }
 
-  /** The full entry, the way Claudine will post it. chosen = [code, name] for the side the owner picks. */
+  /** The full entry, the way Cl@ud will post it. chosen = [code, name] for the side the owner picks. */
   function draftLines(it, chosen) {
     var gross = Number(it.amount) || 0, lines = [], book = String(it.book || '');
     var tax = it.tax || { vatClient: Number(it.vat) > 0, docVat: Number(it.vat) || 0, ivat: ['1300', 'Input VAT'], ovat: ['2100', 'Output VAT'] };
@@ -1107,13 +1107,13 @@
     }
     function redraw(chosen) { tableWrap.innerHTML = ''; tableWrap.appendChild(entryTable(draftLines(it, chosen))); }
     redraw(cur);
-    if (it.atc || (/withh|ATC/i.test(it.why || ''))) box.appendChild(el('div', 'pc-note', 'Withholding tax (EWT) is worked out by Claudine when it posts.'));
+    if (it.atc || (/withh|ATC/i.test(it.why || ''))) box.appendChild(el('div', 'pc-note', 'Withholding tax (EWT) is worked out by Cl@ud when it posts.'));
 
     var actions = el('div', 'pc-actions');
     if (it.state === 'approved') {
-      card.appendChild(el('div', 'pc-state', '✓ Approved — Claudine will post it within the hour.'));
+      card.appendChild(el('div', 'pc-state', '✓ Approved — Cl@ud will post it within the hour.'));
     } else if (it.manual) {
-      card.appendChild(el('div', 'pc-note', 'Claudine can\'t post this kind by itself yet. Encode it in the client\'s workbook, then tap “I encoded it”.'));
+      card.appendChild(el('div', 'pc-note', 'Cl@ud can\'t post this kind by itself yet. Encode it in the client\'s workbook, then tap “I encoded it”.'));
       var did = el('button', 'btn ok small', '✓ I encoded it'); did.type = 'button';
       did.addEventListener('click', function () { decide(it, { choice: 'done' }, card, did); });
       actions.appendChild(did);
@@ -1344,7 +1344,7 @@
       case 'postDecide':
         var pp = (db.posts || []).filter(function (x) { return x.row === p.row; })[0];
         if (pp) { if (p.choice === 'done') db.posts = db.posts.filter(function (x) { return x !== pp; }); else { pp.state = p.choice === 'post' ? 'approved' : 'hold'; pp.decision = { debit: p.debit, credit: p.credit }; } }
-        return reply({ ok: true, text: p.choice === 'post' ? 'Approved. Claudine will post it within the hour.' : p.choice === 'hold' ? 'On hold.' : 'Marked as encoded.' });
+        return reply({ ok: true, text: p.choice === 'post' ? 'Approved. Cl@ud will post it within the hour.' : p.choice === 'hold' ? 'On hold.' : 'Marked as encoded.' });
       case 'postImage': return reply({ ok: true, mime: 'image/svg+xml', data: btoa('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#fff"/><text x="40" y="80" font-size="34" font-family="Arial">SAMPLE INVOICE</text></svg>') });
       case 'setNickname': db.nick = db.nick || {}; db.nick[who()] = String(p.nickname).trim(); return reply({ ok: !!db.nick[who()], nickname: db.nick[who()], error: 'Please type a name.' });
       case 'history': return reply({ ok: true, items: db.items.filter(function (i) { return i.clientCode === p.clientCode; }).slice().reverse() });
