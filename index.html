@@ -13,7 +13,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Gabbrielle">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="stylesheet" href="app.css?v=9">
+  <link rel="stylesheet" href="app.css?v=10">
 </head>
 <body>
   <div id="demoBanner" class="demo-banner" hidden>Demo mode — nothing is really sent. Login code: <b>123456</b></div>
@@ -235,13 +235,13 @@
   </div>
 
   <!-- ============ PHOTO VIEWER ============ -->
-  <div id="viewer" class="viewer" hidden><img id="viewerImg" alt="Document photo"><span class="viewer-hint">Tap anywhere to close</span></div>
+  <div id="viewer" class="viewer" hidden><button type="button" class="viewer-close" id="viewerClose" aria-label="Close the photo">✕ Close</button><img id="viewerImg" alt="Document photo"><span class="viewer-hint">Tap the photo to zoom in or out · ✕ Close or Back to return</span></div>
 
   <div id="ptr" class="ptr" hidden>↓ Pull to refresh</div>
   <div id="toast" class="toast" hidden></div>
 
   <script src="config.js"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
   <script src="scanner.js?v=7"></script>
 </body>
 </html>

@@ -770,9 +770,20 @@
   function openViewer(src) {
     var v = $('viewer'), img = $('viewerImg'), pdf = /^data:application\/pdf/.test(src);
     if (pdf) { var w = window.open(); if (w) w.document.write('<iframe src="' + src + '" style="border:0;width:100%;height:100%"></iframe>'); return; }
-    img.src = src; v.hidden = false;
+    img.src = src; v.classList.remove('zoom'); v.hidden = false; v.scrollTop = 0;
+    try { history.pushState({ viewer: 1 }, ''); } catch (e) {}
   }
-  $('viewer').addEventListener('click', function () { $('viewer').hidden = true; $('viewerImg').src = ''; });
+  function closeViewer(fromBack) {
+    var v = $('viewer'); if (v.hidden) return;
+    v.hidden = true; v.classList.remove('zoom'); $('viewerImg').src = '';
+    if (!fromBack) { try { if (history.state && history.state.viewer) history.back(); } catch (e) {} }
+  }
+  $('viewer').addEventListener('click', function (e) {
+    if (e.target === $('viewerImg')) { $('viewer').classList.toggle('zoom'); return; }   // tap the photo = zoom
+    closeViewer(false);                                                                    // tap outside or ✕ = close
+  });
+  window.addEventListener('popstate', function () { closeViewer(true); });             // phone Back button
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeViewer(false); });
 
   $('btnRefresh').addEventListener('click', refreshItems);
 
@@ -930,53 +941,127 @@
   function acctText(a) { return a ? a[0] + (a[1] ? ' ' + a[1] : '') : '—'; }
 
   /** One draft from Claudine. */
-  function postCard(it) {
-    var card = el('div', 'qa');
-    var head = el('div', 'qa-head');
-    head.appendChild(el('div', 'qa-client', it.client + ' · ' + (it.date ? niceDate(it.date) : 'no date')));
-    head.appendChild(el('div', 'qa-doc', it.label));
-    card.appendChild(head);
-    if (it.amount != null && it.amount !== '') card.appendChild(el('div', 'pc-amt', peso(it.amount)));
-    if (it.why) card.appendChild(el('div', 'pc-why', it.why));
-    var entry = el('div', 'pc-entry');
-    entry.appendChild(el('span', '', (it.book || 'Entry') + (it.rule ? ' (rule ' + it.rule + ')' : '') + ': '));
-    entry.appendChild(el('b', '', 'Dr ' + acctText(it.debit) + ' · Cr ' + acctText(it.credit)));
-    card.appendChild(entry);
+  var BOOK_NAMES = { CDJ: 'Cash Disbursements', CRJ: 'Cash Receipts', GJ: 'General Journal', Certificates: '2307 Register' };
+  function bookName(b) {
+    var k = String(b || '').split(/\s*[–-]\s*/)[0].trim();
+    var rest = String(b || '').slice(k.length).replace(/^\s*[–-]\s*/, '');
+    return (BOOK_NAMES[k] || k || 'Entry') + (rest ? ' · ' + rest : '');
+  }
+  function money(v) { return peso(v).replace('₱', ''); }
+  function r2(v) { return Math.round(v * 100) / 100; }
 
-    var photo = el('button', 'link qa-photo', '📷 See the photo'); photo.type = 'button';
-    photo.addEventListener('click', function () {
-      if (it._img) return openViewer(it._img);
-      busy(photo, true, 'Loading photo…');
-      call('postImage', { token: state.token, row: it.row }).then(function (r) {
-        busy(photo, false);
-        if (!r.ok) { toast(r.error || 'Photo not available.'); return; }
-        it._img = 'data:' + r.mime + ';base64,' + r.data; openViewer(it._img);
-      });
-    });
-    card.appendChild(photo);
-
-    if (it.state === 'approved') {
-      var d = it.decision || {};
-      card.appendChild(el('div', 'pc-state', '✓ Approved' + (d.debit ? ' – Dr ' + d.debit : '') + (d.credit ? ' – Cr ' + d.credit : '') + '. Claudine will post it within the hour.'));
-      return card;
+  /** The full entry, the way Claudine will post it. chosen = [code, name] for the side the owner picks. */
+  function draftLines(it, chosen) {
+    var gross = Number(it.amount) || 0, lines = [], book = String(it.book || '');
+    var tax = it.tax || { vatClient: Number(it.vat) > 0, docVat: Number(it.vat) || 0, ivat: ['1300', 'Input VAT'], ovat: ['2100', 'Output VAT'] };
+    var dr = it.debit, cr = it.credit;
+    if (chosen) { if (/^CRJ/.test(book)) cr = chosen; else dr = chosen; }
+    if (/^CDJ/.test(book) && !it.manual) {
+      var personal = dr && /^3/.test(dr[0]);
+      if (tax.vatClient && tax.docVat > 0 && !personal) {
+        var net = r2(gross / 1.12);
+        lines.push({ a: dr, d: net }, { a: tax.ivat, d: r2(gross - net) });
+      } else lines.push({ a: dr, d: gross });
+      lines.push({ a: cr, c: gross });
+    } else if (/^CRJ/.test(book) && !it.manual) {
+      lines.push({ a: dr, d: gross });
+      if (tax.vatClient) { var n2 = r2(gross / 1.12); lines.push({ a: cr, c: n2 }, { a: tax.ovat, c: r2(gross - n2) }); }
+      else lines.push({ a: cr, c: gross });
+    } else {
+      if (dr) lines.push({ a: dr, d: gross });
+      if (cr) lines.push({ a: cr, c: gross });
     }
-    if (it.state === 'hold') card.appendChild(el('div', 'pc-state hold', '⏸ On hold'));
+    return lines;
+  }
 
-    var btns = el('div', 'pc-btns');
-    if (it.manual) {
-      card.appendChild(el('div', 'pc-entry', 'Claudine can\'t post this kind by itself yet — encode it in the client\'s workbook, then tap “I encoded it”.'));
+  function entryTable(lines) {
+    var t = document.createElement('table'); t.className = 'je';
+    var h = t.createTHead().insertRow();
+    ['Account', 'Debit', 'Credit'].forEach(function (x) { var th = document.createElement('th'); th.textContent = x; h.appendChild(th); });
+    var b = t.createTBody(), td = 0, tc = 0;
+    lines.forEach(function (l) {
+      var row = b.insertRow(); row.className = l.c ? 'cr' : 'dr';
+      var c0 = row.insertCell(), c1 = row.insertCell(), c2 = row.insertCell();
+      if (l.a) { c0.appendChild(el('span', 'je-code', l.a[0])); c0.appendChild(document.createTextNode(' ' + (l.a[1] || ''))); }
+      else c0.appendChild(el('span', 'je-pick', 'Choose the account below'));
+      c1.textContent = l.d ? money(l.d) : ''; c2.textContent = l.c ? money(l.c) : '';
+      td += l.d || 0; tc += l.c || 0;
+    });
+    var f = t.createTFoot().insertRow();
+    f.insertCell().textContent = 'Total'; f.insertCell().textContent = money(td); f.insertCell().textContent = money(tc);
+    return t;
+  }
+
+  function accountSelect(opts, cur, label) {
+    var sel = document.createElement('select');
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = label + ' — choose…'; sel.appendChild(o0);
+    var groups = { '1': 'Assets', '2': 'Liabilities', '3': 'Owner\'s equity', '4': 'Income', '5': 'Cost of sales', '6': 'Expenses' }, made = {};
+    opts.forEach(function (a) {
+      var g = groups[String(a[0]).charAt(0)] || 'Other';
+      if (!made[g]) { made[g] = document.createElement('optgroup'); made[g].label = g; sel.appendChild(made[g]); }
+      var o = document.createElement('option'); o.value = a[0]; o.textContent = acctText(a); if (cur && cur[0] === a[0]) o.selected = true;
+      made[g].appendChild(o);
+    });
+    return sel;
+  }
+
+  function postCard(it) {
+    var card = el('div', 'pc');
+    // header: client + date
+    var top = el('div', 'pc-top');
+    top.appendChild(el('span', 'pc-chip', it.code));
+    top.appendChild(el('span', 'pc-client', it.client));
+    top.appendChild(el('span', 'pc-date', it.date ? niceDate(it.date) : 'no date'));
+    card.appendChild(top);
+    // document
+    var doc = el('div', 'pc-doc');
+    doc.appendChild(el('div', 'pc-type', (it.docType || 'Document') + (it.docNo ? ' · No. ' + it.docNo : '')));
+    if (it.party) doc.appendChild(el('div', 'pc-party', it.party));
+    if (it.partyTin) doc.appendChild(el('div', 'pc-tin', 'TIN ' + it.partyTin));
+    card.appendChild(doc);
+    if (it.amount != null && it.amount !== '') {
+      var amt = el('div', 'pc-amount');
+      amt.appendChild(el('span', 'pc-amount-label', 'Total'));
+      amt.appendChild(el('span', 'pc-amount-val', peso(it.amount)));
+      card.appendChild(amt);
+    }
+    if (it.why) { var why = el('div', 'pc-why'); why.appendChild(el('span', 'pc-why-ico', '⚠')); why.appendChild(el('span', '', it.why)); card.appendChild(why); }
+
+    // the proposed entry
+    var box = el('div', 'pc-entrybox');
+    var eh = el('div', 'pc-entryhead');
+    eh.appendChild(el('span', '', it.state === 'approved' ? 'Approved entry' : 'Proposed entry'));
+    eh.appendChild(el('span', 'pc-book', bookName(it.book) + (it.rule ? ' · Rule ' + it.rule : '')));
+    box.appendChild(eh);
+    var tableWrap = el('div', 'pc-tablewrap');
+    box.appendChild(tableWrap);
+    card.appendChild(box);
+    var side = /^CRJ/.test(it.book) ? 'credit' : 'debit';
+    var opts = (it.options || []).slice(), cur = side === 'credit' ? it.credit : it.debit;
+    if (it.state === 'approved' && it.decision && it.decision[side]) {
+      var dc = it.decision[side]; cur = opts.filter(function (o) { return o[0] === dc; })[0] || [dc, ''];
+    }
+    function redraw(chosen) { tableWrap.innerHTML = ''; tableWrap.appendChild(entryTable(draftLines(it, chosen))); }
+    redraw(cur);
+    if (it.atc || (/withh|ATC/i.test(it.why || ''))) box.appendChild(el('div', 'pc-note', 'Withholding tax (EWT) is worked out by Claudine when it posts.'));
+
+    var actions = el('div', 'pc-actions');
+    if (it.state === 'approved') {
+      card.appendChild(el('div', 'pc-state', '✓ Approved — Claudine will post it within the hour.'));
+    } else if (it.manual) {
+      card.appendChild(el('div', 'pc-note', 'Claudine can\'t post this kind by itself yet. Encode it in the client\'s workbook, then tap “I encoded it”.'));
       var did = el('button', 'btn ok small', '✓ I encoded it'); did.type = 'button';
       did.addEventListener('click', function () { decide(it, { choice: 'done' }, card, did); });
-      btns.appendChild(did);
+      actions.appendChild(did);
     } else {
-      var pick = el('div', 'pc-pick');
-      var side = /^CRJ/.test(it.book) ? 'credit' : 'debit';
-      var cur = side === 'credit' ? it.credit : it.debit;
-      var sel = document.createElement('select');
-      var o0 = document.createElement('option'); o0.value = ''; o0.textContent = (side === 'credit' ? 'Credit' : 'Debit') + ' account — choose…'; sel.appendChild(o0);
-      var opts = (it.options || []).slice();
+      if (it.state === 'hold') card.appendChild(el('div', 'pc-state hold', '⏸ On hold'));
       if (cur && !opts.some(function (o) { return o[0] === cur[0]; })) opts.unshift(cur);
-      opts.forEach(function (a) { var o = document.createElement('option'); o.value = a[0]; o.textContent = acctText(a); if (cur && cur[0] === a[0]) o.selected = true; sel.appendChild(o); });
+      var pick = el('label', 'pc-pick');
+      pick.appendChild(el('span', 'pc-pick-label', side === 'credit' ? 'Credit account' : 'Debit account'));
+      var sel = accountSelect(opts, cur, side === 'credit' ? 'Credit account' : 'Debit account');
+      sel.addEventListener('change', function () {
+        var a = opts.filter(function (o) { return o[0] === sel.value; })[0] || null; redraw(a);
+      });
       pick.appendChild(sel);
       var atc = null;
       if (/withh|ATC/i.test(it.why || '')) { atc = inputEl('ATC, e.g. WC158 (leave blank if none)'); pick.appendChild(atc); }
@@ -987,18 +1072,35 @@
         var p = { choice: 'post' }; p[side] = sel.value; if (atc && atc.value.trim()) p.atc = atc.value.trim();
         decide(it, p, card, go);
       });
-      btns.appendChild(go);
+      actions.appendChild(go);
       if (it.state !== 'hold') {
         var hold = el('button', 'btn ghost small', '⏸ Hold'); hold.type = 'button';
         hold.addEventListener('click', function () { decide(it, { choice: 'hold' }, card, hold, true); });
-        btns.appendChild(hold);
+        actions.appendChild(hold);
       }
+    }
+    if (actions.childNodes.length) card.appendChild(actions);
+
+    // links
+    var links = el('div', 'pc-links');
+    var photo = el('button', 'link', '📷 See the photo'); photo.type = 'button';
+    photo.addEventListener('click', function () {
+      if (it._img) return openViewer(it._img);
+      busy(photo, true, '⏳ Loading photo…');
+      call('postImage', { token: state.token, row: it.row }).then(function (r) {
+        busy(photo, false);
+        if (!r.ok) { toast(r.error || 'Photo not available.'); return; }
+        it._img = 'data:' + r.mime + ';base64,' + r.data; openViewer(it._img);
+      });
+    });
+    links.appendChild(photo);
+    if (it.link) { var open = document.createElement('a'); open.className = 'link'; open.href = it.link; open.target = '_blank'; open.rel = 'noopener'; open.textContent = 'Open in Drive'; links.appendChild(open); }
+    if (!it.manual && it.state !== 'approved') {
       var mine = el('button', 'link muted-link', 'I\'ll encode it myself'); mine.type = 'button';
       mine.addEventListener('click', function () { if (confirmTwice(mine)) decide(it, { choice: 'done' }, card, mine); });
-      btns.appendChild(mine);
+      links.appendChild(mine);
     }
-    card.appendChild(btns);
-    if (it.link) { var open = document.createElement('a'); open.className = 'link'; open.href = it.link; open.target = '_blank'; open.rel = 'noopener'; open.textContent = 'Open in Drive'; card.appendChild(open); }
+    card.appendChild(links);
     return card;
   }
 
@@ -1168,9 +1270,11 @@
       case 'toPost':
         db.posts = db.posts || [
           { row: 5, fileId: 'demo1', code: 'C000', client: 'Dummy Client (for testing)', label: 'Supplier Invoice / Receipt 1123 – ACME Office Supply', amount: 1120, date: '2026-10-03',
+            docType: 'Supplier Invoice / Receipt', docNo: '1123', party: 'ACME Office Supply Inc.', partyTin: '123-456-789-00000', vat: 120,
+            tax: { vatClient: true, docVat: 120, ivat: ['1300', 'Input VAT'], ovat: ['2100', 'Output VAT'] },
             why: 'First time for this supplier – choose the account.', rule: 'P3', book: 'CDJ – Purchase', debit: null, credit: ['1000', 'Cash on Hand'],
-            options: [['6070', 'Office Supplies'], ['6060', 'Repairs and Maintenance'], ['6200', 'Miscellaneous Expense']], manual: false, state: 'new' },
-          { row: 6, fileId: 'demo2', code: 'C017', client: 'Juan Dela Cruz Hardware', label: 'Payroll / Contributions', amount: 18500, date: '2026-10-05',
+            options: [['1200', 'Merchandise Inventory'], ['3010', 'Owners Drawings'], ['5000', 'Purchases'], ['6070', 'Office Supplies'], ['6060', 'Repairs and Maintenance'], ['6200', 'Miscellaneous Expense']], manual: false, state: 'new' },
+          { row: 6, fileId: 'demo2', code: 'C017', client: 'Juan Dela Cruz Hardware', label: 'Payroll / Contributions', amount: 18500, date: '2026-10-05', docType: 'Payroll / Contributions',
             why: 'Payroll – encode in Cash Disbursements.', rule: 'W1', book: 'CDJ – Payroll', debit: ['6000', 'Salaries and Wages'], credit: ['1000', 'Cash on Hand'], options: [], manual: true, state: 'new' }];
         return reply({ ok: true, items: db.posts });
       case 'postDecide':
