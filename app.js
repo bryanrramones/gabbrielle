@@ -616,6 +616,9 @@
     $('staffTitle').textContent = owner ? 'Owner' : 'Firm staff';
     $('staffSheetTitle').textContent = owner ? 'Owner – to check' : 'Firm staff';
     $('btnOwner').hidden = !owner;
+    var tp = owner && state.overview ? (state.overview.toPost || 0) : 0;
+    $('btnToPost').hidden = !owner;
+    $('toPostCount').textContent = tp; $('toPostCount').classList.toggle('zero', !tp);
     var quiet = owner && state.overview ? state.overview.clients.filter(function (c) { return c.quiet; }).length : 0;
     $('ownerQuietCount').textContent = quiet; $('ownerQuietCount').hidden = !quiet;
     if (owner && !$('sheetOwner').hidden) renderOwnerSheet();
@@ -623,7 +626,7 @@
     $('staffCheckCount').textContent = a; $('staffCheckCount').classList.toggle('zero', !a);
     $('staffWaitCount').textContent = w;
     $('staffSummary').textContent = a ? a + ' detail' + (a === 1 ? '' : 's') + ' from Claude to check.' : 'Nothing to check right now.';
-    setBadge(n + (state.staff ? a : 0));
+    setBadge(n + (state.staff ? a : 0) + tp);
     if (!$('sheetAction').hidden) renderActionSheet();
     if (!$('sheetStaff').hidden) renderStaffSheet();
   }
@@ -910,6 +913,107 @@
     return card;
   }
 
+  // ------------------------------------------------------------------ owner: to post in Claudine
+  $('btnToPost').addEventListener('click', function () { openPostSheet(); });
+  function openPostSheet() {
+    var box = $('postList'); box.innerHTML = ''; box.appendChild(el('p', 'muted', 'Loading…'));
+    openSheet('sheetPost');
+    return call('toPost', { token: state.token }).then(function (r) {
+      box.innerHTML = '';
+      if (!r.ok) { if (r.code === 'LOGGED_OUT') return logout(true, r.error); box.appendChild(el('p', 'muted', r.error || 'Could not load the list.')); return; }
+      var items = r.items || [];
+      if (!items.length) { box.appendChild(el('p', 'muted', 'Nothing to post. Claudine has everything. 🎉')); return; }
+      items.forEach(function (it) { box.appendChild(postCard(it)); });
+    });
+  }
+
+  function acctText(a) { return a ? a[0] + (a[1] ? ' ' + a[1] : '') : '—'; }
+
+  /** One draft from Claudine. */
+  function postCard(it) {
+    var card = el('div', 'qa');
+    var head = el('div', 'qa-head');
+    head.appendChild(el('div', 'qa-client', it.client + ' · ' + (it.date ? niceDate(it.date) : 'no date')));
+    head.appendChild(el('div', 'qa-doc', it.label));
+    card.appendChild(head);
+    if (it.amount != null && it.amount !== '') card.appendChild(el('div', 'pc-amt', peso(it.amount)));
+    if (it.why) card.appendChild(el('div', 'pc-why', it.why));
+    var entry = el('div', 'pc-entry');
+    entry.appendChild(el('span', '', (it.book || 'Entry') + (it.rule ? ' (rule ' + it.rule + ')' : '') + ': '));
+    entry.appendChild(el('b', '', 'Dr ' + acctText(it.debit) + ' · Cr ' + acctText(it.credit)));
+    card.appendChild(entry);
+
+    var photo = el('button', 'link qa-photo', '📷 See the photo'); photo.type = 'button';
+    photo.addEventListener('click', function () {
+      if (it._img) return openViewer(it._img);
+      busy(photo, true, 'Loading photo…');
+      call('postImage', { token: state.token, row: it.row }).then(function (r) {
+        busy(photo, false);
+        if (!r.ok) { toast(r.error || 'Photo not available.'); return; }
+        it._img = 'data:' + r.mime + ';base64,' + r.data; openViewer(it._img);
+      });
+    });
+    card.appendChild(photo);
+
+    if (it.state === 'approved') {
+      var d = it.decision || {};
+      card.appendChild(el('div', 'pc-state', '✓ Approved' + (d.debit ? ' – Dr ' + d.debit : '') + (d.credit ? ' – Cr ' + d.credit : '') + '. Claudine will post it within the hour.'));
+      return card;
+    }
+    if (it.state === 'hold') card.appendChild(el('div', 'pc-state hold', '⏸ On hold'));
+
+    var btns = el('div', 'pc-btns');
+    if (it.manual) {
+      card.appendChild(el('div', 'pc-entry', 'Claudine can\'t post this kind by itself yet — encode it in the client\'s workbook, then tap “I encoded it”.'));
+      var did = el('button', 'btn ok small', '✓ I encoded it'); did.type = 'button';
+      did.addEventListener('click', function () { decide(it, { choice: 'done' }, card, did); });
+      btns.appendChild(did);
+    } else {
+      var pick = el('div', 'pc-pick');
+      var side = /^CRJ/.test(it.book) ? 'credit' : 'debit';
+      var cur = side === 'credit' ? it.credit : it.debit;
+      var sel = document.createElement('select');
+      var o0 = document.createElement('option'); o0.value = ''; o0.textContent = (side === 'credit' ? 'Credit' : 'Debit') + ' account — choose…'; sel.appendChild(o0);
+      var opts = (it.options || []).slice();
+      if (cur && !opts.some(function (o) { return o[0] === cur[0]; })) opts.unshift(cur);
+      opts.forEach(function (a) { var o = document.createElement('option'); o.value = a[0]; o.textContent = acctText(a); if (cur && cur[0] === a[0]) o.selected = true; sel.appendChild(o); });
+      pick.appendChild(sel);
+      var atc = null;
+      if (/withh|ATC/i.test(it.why || '')) { atc = inputEl('ATC, e.g. WC158 (leave blank if none)'); pick.appendChild(atc); }
+      card.appendChild(pick);
+      var go = el('button', 'btn ok small', '✓ Post'); go.type = 'button';
+      go.addEventListener('click', function () {
+        if (!sel.value) { sel.focus(); toast('Please choose the account first.'); return; }
+        var p = { choice: 'post' }; p[side] = sel.value; if (atc && atc.value.trim()) p.atc = atc.value.trim();
+        decide(it, p, card, go);
+      });
+      btns.appendChild(go);
+      if (it.state !== 'hold') {
+        var hold = el('button', 'btn ghost small', '⏸ Hold'); hold.type = 'button';
+        hold.addEventListener('click', function () { decide(it, { choice: 'hold' }, card, hold, true); });
+        btns.appendChild(hold);
+      }
+      var mine = el('button', 'link muted-link', 'I\'ll encode it myself'); mine.type = 'button';
+      mine.addEventListener('click', function () { if (confirmTwice(mine)) decide(it, { choice: 'done' }, card, mine); });
+      btns.appendChild(mine);
+    }
+    card.appendChild(btns);
+    if (it.link) { var open = document.createElement('a'); open.className = 'link'; open.href = it.link; open.target = '_blank'; open.rel = 'noopener'; open.textContent = 'Open in Drive'; card.appendChild(open); }
+    return card;
+  }
+
+  function decide(it, payload, card, btn, keep) {
+    payload.token = state.token; payload.row = it.row; payload.fileId = it.fileId;
+    busy(btn, true, 'Saving…');
+    call('postDecide', payload).then(function (r) {
+      busy(btn, false);
+      toast(r.ok ? r.text : r.error);
+      if (!r.ok) return;
+      refreshItems();
+      if (keep || payload.choice === 'post') { openPostSheet(); } else done(card);
+    });
+  }
+
   function inputEl(ph, type) { var i = document.createElement('input'); i.type = type || 'text'; i.placeholder = ph; if (type === 'email') i.inputMode = 'email'; return i; }
   /** Risky buttons need a second tap. */
   function confirmTwice(btn) {
@@ -927,10 +1031,11 @@
   }
   function openDeepLink(link) {
     if (!link) return;
-    if (link.owner && state.role === 'owner') { renderOwnerSheet(); openSheet('sheetOwner'); }
+    if (link.post && state.role === 'owner') { openPostSheet(); }
+    else if (link.owner && state.role === 'owner') { renderOwnerSheet(); openSheet('sheetOwner'); }
     else if (link.staff && state.staff) { state.staffTab = 'check'; renderStaffSheet(); openSheet('sheetStaff'); }
     else if (link.action && state.items.length) { renderActionSheet(); openSheet('sheetAction'); }
-    if ((link.staff || link.action || link.owner) && history.replaceState) history.replaceState(null, '', location.pathname);
+    if ((link.staff || link.action || link.owner || link.post) && history.replaceState) history.replaceState(null, '', location.pathname);
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function (e) {
     var d = e.data || {};
@@ -1054,12 +1159,25 @@
         return reply({ ok: true, token: t, email: p.email, nickname: (db.nick || {})[p.email] || '', clients: allowed(p.email), staff: isStaff(p.email), role: p.email === 'owner@gmail.com' ? 'owner' : isStaff(p.email) ? 'staff' : 'client' });
       case 'me': return reply({ ok: true, email: who(), nickname: (db.nick || {})[who()] || '', clients: allowed(who()), staff: isStaff(who()), role: who() === 'owner@gmail.com' ? 'owner' : isStaff(who()) ? 'staff' : 'client' });
       case 'ownerOverview':
-        return reply({ ok: true, owner: 'owner@gmail.com', staff: ['staff@gmail.com'], loggedIn: ['demo@gmail.com', 'staff@gmail.com'], clients: [
+        return reply({ ok: true, owner: 'owner@gmail.com', toPost: 1, staff: ['staff@gmail.com'], loggedIn: ['demo@gmail.com', 'staff@gmail.com'], clients: [
           { code: 'C020', name: 'Other Store', active: true, lastSent: 'Sep 27, 2026', daysQuiet: 10, quietDays: 7, quiet: true, thisMonth: 0, withStaff: 0, withClient: 1, oldestAsk: 4 },
           { code: 'C000', name: 'Dummy Client (for testing)', active: true, lastSent: 'Oct 2, 2026', daysQuiet: 5, quietDays: 7, quiet: false, thisMonth: 2, withStaff: 1, withClient: 1, oldestAsk: 1 },
           { code: 'C017', name: 'Juan Dela Cruz Hardware', active: true, lastSent: 'Oct 6, 2026', daysQuiet: 1, quietDays: 14, quiet: false, thisMonth: 6, withStaff: 1, withClient: 0, oldestAsk: 0 },
           { code: 'C030', name: 'New Bakery', active: true, lastSent: '', neverSent: true, daysQuiet: 2, quietDays: 7, quiet: false, thisMonth: 0, withStaff: 0, withClient: 0, oldestAsk: 0 }] });
       case 'ownerDo': return reply({ ok: true, text: 'Done (demo).' });
+      case 'toPost':
+        db.posts = db.posts || [
+          { row: 5, fileId: 'demo1', code: 'C000', client: 'Dummy Client (for testing)', label: 'Supplier Invoice / Receipt 1123 – ACME Office Supply', amount: 1120, date: '2026-10-03',
+            why: 'First time for this supplier – choose the account.', rule: 'P3', book: 'CDJ – Purchase', debit: null, credit: ['1000', 'Cash on Hand'],
+            options: [['6070', 'Office Supplies'], ['6060', 'Repairs and Maintenance'], ['6200', 'Miscellaneous Expense']], manual: false, state: 'new' },
+          { row: 6, fileId: 'demo2', code: 'C017', client: 'Juan Dela Cruz Hardware', label: 'Payroll / Contributions', amount: 18500, date: '2026-10-05',
+            why: 'Payroll – encode in Cash Disbursements.', rule: 'W1', book: 'CDJ – Payroll', debit: ['6000', 'Salaries and Wages'], credit: ['1000', 'Cash on Hand'], options: [], manual: true, state: 'new' }];
+        return reply({ ok: true, items: db.posts });
+      case 'postDecide':
+        var pp = (db.posts || []).filter(function (x) { return x.row === p.row; })[0];
+        if (pp) { if (p.choice === 'done') db.posts = db.posts.filter(function (x) { return x !== pp; }); else { pp.state = p.choice === 'post' ? 'approved' : 'hold'; pp.decision = { debit: p.debit, credit: p.credit }; } }
+        return reply({ ok: true, text: p.choice === 'post' ? 'Approved. Claudine will post it within the hour.' : p.choice === 'hold' ? 'On hold.' : 'Marked as encoded.' });
+      case 'postImage': return reply({ ok: true, mime: 'image/svg+xml', data: btoa('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#fff"/><text x="40" y="80" font-size="34" font-family="Arial">SAMPLE INVOICE</text></svg>') });
       case 'setNickname': db.nick = db.nick || {}; db.nick[who()] = String(p.nickname).trim(); return reply({ ok: !!db.nick[who()], nickname: db.nick[who()], error: 'Please type a name.' });
       case 'history': return reply({ ok: true, items: db.items.filter(function (i) { return i.clientCode === p.clientCode; }).slice().reverse() });
       case 'submit':

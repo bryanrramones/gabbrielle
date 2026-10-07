@@ -316,3 +316,18 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
   font-size: 13px; font-weight: 700; padding: 8px 14px; border-radius: 20px; box-shadow: var(--shadow); pointer-events: none; }
 .ptr.spin-on { animation: ptrpulse 1s ease-in-out infinite; }
 @keyframes ptrpulse { 50% { opacity: .6; } }
+
+/* ---------- owner: to post in Claudine ---------- */
+.post-btn { background: #efe7f8; color: #4b2a7a; }
+.post-btn .count { background: #6b3fa0; color: #fff; }
+.post-btn .count.zero { background: #cbbfdc; }
+.pc-amt { font-size: 18px; font-weight: 700; color: var(--ink); margin-top: 6px; }
+.pc-why { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: #fff6e0; font-size: 14px; }
+.pc-entry { margin-top: 8px; font-size: 14px; line-height: 1.5; }
+.pc-entry b { color: var(--ink); }
+.pc-state { margin-top: 8px; font-size: 14px; font-weight: 600; color: #2f7d4a; }
+.pc-state.hold { color: #9a6a00; }
+.pc-pick { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.pc-pick select, .pc-pick input { padding: 10px 12px; font-size: 15px; border-radius: 10px; }
+.pc-btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.pc-btns .btn { flex: 1; min-width: 120px; }
