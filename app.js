@@ -275,7 +275,10 @@
   $('btnBusiness').addEventListener('click', function () {
     if (state.clients.length < 2) return;
     var body = $('menuBody'); body.innerHTML = '';
-    $('menuTitle').textContent = state.role === 'owner' ? 'Send for which client?' : 'Choose business';
+    // A client whose accounts are branches of one business (C017, C017-00001…) chooses a branch.
+    var bases = {}; state.clients.forEach(function (c) { bases[c.code.split('-')[0]] = true; });
+    var branchMode = state.role !== 'owner' && Object.keys(bases).length === 1;
+    $('menuTitle').textContent = state.role === 'owner' ? 'Send for which client?' : branchMode ? 'Choose branch' : 'Choose business';
     var list = el('div'), q = null;
     if (state.clients.length > 5) {   // many clients: type a few letters of the name or code
       q = el('input', 'menu-search'); q.type = 'search'; q.placeholder = 'Search client name or code';
