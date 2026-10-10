@@ -402,3 +402,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 .exit-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
 .period-other { margin-top: 8px; width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 16px; }
 .period-other[hidden] { display: none; }
+/* ---------- business records button; editable multi-line entries ---------- */
+.g-rec { background: #5d4b85; }
+.je-edit .je-amt { width: 100%; box-sizing: border-box; padding: 6px 6px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 15px; text-align: right; }
+.je-edit tfoot tr.off td { color: #b42318; }
+.je-edit tfoot tr.ok td { color: #157f3b; }

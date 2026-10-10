@@ -380,8 +380,13 @@
       { key: 'f2307', ico: '🏛️', label: 'BIR 2307', desc: 'Certificate of tax withheld',
         subs: [{ key: 'received', label: 'Received from my customers', desc: 'A customer withheld tax from their payment to you' },
                { key: 'issued', label: 'Issued to my suppliers', desc: 'You withheld tax from your payment to a supplier' }] },
-      { key: 'bir', ico: '📑', label: 'BIR Forms & Payments', desc: 'Filed returns, payment forms, BIR letters' },
-      { key: 'bank', ico: '🏦', label: 'Bank', desc: 'Bank statements, deposit slips', cls: 'g-bank' } ] }
+      { key: 'bir', ico: '📑', label: 'BIR Forms & Payments', desc: 'Filed returns, proof of tax payments, BIR letters',
+        subs: [{ key: 'return', label: 'Tax return filed', desc: '2551Q, 2550Q, 1701Q, 1702Q, 1601-EQ, 0619-E, annual returns…' },
+               { key: 'payment', label: 'Proof of tax payment', desc: 'Bank or e-wallet confirmation, eFPS / eBIRForms payment, BIR or bank receipt' },
+               { key: 'letter', label: 'BIR letter or notice', desc: 'Letters, notices, assessments from the BIR' }] },
+      { key: 'bank', ico: '🏦', label: 'Bank', desc: 'Bank statements, deposit slips', cls: 'g-bank' } ] },
+    { title: 'Records', cls: 'g-rec', items: [
+      { key: 'records', ico: '🗂️', label: 'Business Records', desc: 'COR (2303), permits, SEC / DTI papers, contracts, leases, audited FS — kept on file' } ] }
   ];
   var CAT_UNSURE = { key: 'unsure', ico: '❓', label: 'Not sure? Just send it', desc: 'The firm will sort it out', cls: 'g-unsure' };
 
@@ -1279,6 +1284,36 @@
     return t;
   }
 
+  /** A proposed entry with an amount box on every line; totals update as you type. */
+  function editableEntry(lines) {
+    var t = document.createElement('table'); t.className = 'je je-edit';
+    var h = t.createTHead().insertRow();
+    ['Account', 'Debit', 'Credit'].forEach(function (x) { var th = document.createElement('th'); th.textContent = x; h.appendChild(th); });
+    var b = t.createTBody(), boxes = [], f, fd, fc;
+    function box(v) { var i = document.createElement('input'); i.type = 'text'; i.inputMode = 'decimal'; i.className = 'je-amt'; i.value = v ? Number(v).toFixed(2) : ''; i.addEventListener('input', sum); return i; }
+    function val(i) { var n = Number(String(i.value).replace(/[^\d.]/g, '')); return isNaN(n) ? 0 : Math.round(n * 100) / 100; }
+    lines.forEach(function (l) {
+      var row = b.insertRow(), isCr = Number(l[3]) > 0 && !(Number(l[2]) > 0); row.className = isCr ? 'cr' : 'dr';
+      var c0 = row.insertCell(), c1 = row.insertCell(), c2 = row.insertCell();
+      c0.appendChild(el('span', 'je-code', l[0])); c0.appendChild(document.createTextNode(' ' + (l[1] || '')));
+      var i = box(isCr ? l[3] : l[2]); (isCr ? c2 : c1).appendChild(i);
+      boxes.push({ code: l[0], cr: isCr, input: i });
+    });
+    f = t.createTFoot().insertRow(); f.insertCell().textContent = 'Total'; fd = f.insertCell(); fc = f.insertCell();
+    function sum() {
+      var d = 0, c = 0; boxes.forEach(function (x) { if (x.cr) c += val(x.input); else d += val(x.input); });
+      fd.textContent = money(d); fc.textContent = money(c);
+      f.className = Math.abs(d - c) < 0.005 ? 'ok' : 'off';
+      return { d: d, c: c };
+    }
+    sum();
+    return { table: t, read: function () {
+      var s = sum();
+      if (Math.abs(s.d - s.c) >= 0.005) return { ok: false, error: 'Debits and credits are not equal yet (' + money(s.d) + ' vs ' + money(s.c) + ').' };
+      return { ok: true, lines: boxes.map(function (x) { var v = val(x.input); return [x.code, x.cr ? 0 : v, x.cr ? v : 0]; }).filter(function (l) { return l[1] || l[2]; }) };
+    } };
+  }
+
   function accountSelect(opts, cur, label) {
     var sel = document.createElement('select');
     var o0 = document.createElement('option'); o0.value = ''; o0.textContent = label + ' — choose…'; sel.appendChild(o0);
@@ -1328,7 +1363,18 @@
     if (it.state === 'approved' && it.decision && it.decision[side]) {
       var dc = it.decision[side]; cur = opts.filter(function (o) { return o[0] === dc; })[0] || [dc, ''];
     }
-    function redraw(chosen) { tableWrap.innerHTML = ''; tableWrap.appendChild(entryTable(draftLines(it, chosen))); }
+    var multi = Array.isArray(it.lines) && it.lines.length > 0, edits = null;
+    function redraw(chosen) {
+      tableWrap.innerHTML = '';
+      if (!multi) { tableWrap.appendChild(entryTable(draftLines(it, chosen))); return; }
+      var src = it.state === 'approved' && it.decision && it.decision.lines ? it.decision.lines.map(function (l) {
+        var m = it.lines.filter(function (x) { return x[0] === l[0]; })[0]; return [l[0], m ? m[1] : '', l[1], l[2]]; }) : it.lines;
+      if (it.state === 'approved' || it.manual || !it.editable) {
+        tableWrap.appendChild(entryTable(src.map(function (l) { return { a: [l[0], l[1]], d: Number(l[2]) || 0, c: Number(l[3]) || 0 }; })));
+        return;
+      }
+      edits = editableEntry(src); tableWrap.appendChild(edits.table);
+    }
     redraw(cur);
     if (it.atc || (/withh|ATC/i.test(it.why || ''))) box.appendChild(el('div', 'pc-note', 'Withholding tax (EWT) is worked out by Cl@ud when it posts.'));
 
@@ -1340,6 +1386,21 @@
       var did = el('button', 'btn ok small', '✓ I encoded it'); did.type = 'button';
       did.addEventListener('click', function () { decide(it, { choice: 'done' }, card, did); });
       actions.appendChild(did);
+    } else if (multi) {
+      if (it.state === 'hold') card.appendChild(el('div', 'pc-state hold', '⏸ On hold'));
+      card.appendChild(el('div', 'pc-note', 'Check the amounts against the document. You can change any amount; debits and credits must be equal.'));
+      var goM = el('button', 'btn ok small', '✓ Post'); goM.type = 'button';
+      goM.addEventListener('click', function () {
+        var ls = edits.read();
+        if (!ls.ok) { toast(ls.error); return; }
+        decide(it, { choice: 'post', lines: ls.lines }, card, goM);
+      });
+      actions.appendChild(goM);
+      if (it.state !== 'hold') {
+        var holdM = el('button', 'btn ghost small', '⏸ Hold'); holdM.type = 'button';
+        holdM.addEventListener('click', function () { decide(it, { choice: 'hold' }, card, holdM, true); });
+        actions.appendChild(holdM);
+      }
     } else {
       if (it.state === 'hold') card.appendChild(el('div', 'pc-state hold', '⏸ On hold'));
       if (cur && !opts.some(function (o) { return o[0] === cur[0]; })) opts.unshift(cur);
@@ -1380,7 +1441,7 @@
         it._img = 'data:' + r.mime + ';base64,' + r.data; openViewer(it._img);
       });
     });
-    links.appendChild(photo);
+    if (!it.noPhoto) links.appendChild(photo);
     if (it.link) { var open = document.createElement('a'); open.className = 'link'; open.href = it.link; open.target = '_blank'; open.rel = 'noopener'; open.textContent = 'Open in Drive'; links.appendChild(open); }
     if (!it.manual && it.state !== 'approved') {
       var mine = el('button', 'link muted-link', 'I\'ll encode it myself'); mine.type = 'button';
