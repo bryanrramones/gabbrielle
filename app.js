@@ -53,8 +53,18 @@
   function show(view) {
     ['viewLogin', 'viewHome', 'viewNick'].forEach(function (v) { $(v).hidden = v !== view; });
   }
-  function openSheet(id) { $(id).hidden = false; document.body.style.overflow = 'hidden'; }
-  function closeSheet(id) { $(id).hidden = true; document.body.style.overflow = ''; }
+  // Open windows (sheets, photo viewer). The phone's Back button closes the top one instead of leaving the app.
+  var LAYERS = [], backArmed = false;
+  function armBack() { if (backArmed) return; try { history.pushState({ gab: 1 }, ''); backArmed = true; } catch (e) {} }
+  function openSheet(id) {
+    $(id).hidden = false; document.body.style.overflow = 'hidden';
+    LAYERS = LAYERS.filter(function (x) { return x !== id; }); LAYERS.push(id); armBack();
+  }
+  function closeSheet(id) {
+    $(id).hidden = true;
+    LAYERS = LAYERS.filter(function (x) { return x !== id; });
+    if (!LAYERS.length) document.body.style.overflow = '';
+  }
   function msg(el, text, ok) { el.textContent = text || ''; el.hidden = !text; el.classList.toggle('ok', !!ok); }
   function toast(text) {
     var t = $('toast'); t.textContent = text; t.hidden = false;
@@ -963,13 +973,11 @@
   function openViewer(src) {
     var v = $('viewer'), img = $('viewerImg'), pdf = /^data:application\/pdf/.test(src);
     if (pdf) { var w = window.open(); if (w) w.document.write('<iframe src="' + src + '" style="border:0;width:100%;height:100%"></iframe>'); return; }
-    img.src = src; vzReset(); v.hidden = false;
-    try { history.pushState({ viewer: 1 }, ''); } catch (e) {}
+    img.src = src; vzReset(); v.hidden = false; armBack();
   }
   function closeViewer(fromBack) {
     var v = $('viewer'); if (v.hidden) return;
     v.hidden = true; vzReset(); $('viewerImg').src = '';
-    if (!fromBack) { try { if (history.state && history.state.viewer) history.back(); } catch (e) {} }
   }
   $('viewerClose').addEventListener('click', function (e) { e.stopPropagation(); closeViewer(false); });
   (function () {
@@ -1019,7 +1027,17 @@
     v.addEventListener('wheel', function (e) { e.preventDefault(); vzZoomAt(VZ.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); }, { passive: false });
     window.addEventListener('resize', function () { if (!v.hidden) { vzClamp(); vzApply(); } });
   })();
-  window.addEventListener('popstate', function () { closeViewer(true); });             // phone Back button
+  window.addEventListener('popstate', function () {                                   // phone Back button
+    backArmed = false;
+    if (!$('viewer').hidden) closeViewer(true);
+    else {
+      var top = LAYERS[LAYERS.length - 1];
+      if (!top) { history.back(); return; }                                            // nothing open: Back leaves the app as usual
+      if (top === 'sheetSend' && state.sending) { armBack(); toast('Please wait — still sending.'); return; }
+      closeSheet(top);
+    }
+    if (LAYERS.length || !$('viewer').hidden) armBack();
+  });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeViewer(false); });
 
   $('btnRefresh').addEventListener('click', refreshItems);

@@ -2,7 +2,7 @@
 // Documents sent with no internet wait on the phone (outbox.js) and are sent from here
 // in the background once the signal is back (Android), with a "sent" notification.
 importScripts('outbox.js?v=1');
-const CACHE = 'gabbrielle-v14';
+const CACHE = 'gabbrielle-v15';
 const SHELL = [
   './', './index.html', './app.css', './app.js', './scanner.js', './config.js', './outbox.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/emblem.png', './icons/logo-full.png', './icons/favicon.png'
