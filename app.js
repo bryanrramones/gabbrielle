@@ -215,6 +215,18 @@
     $('sendSection').hidden = !state.client;
     $('historyCard').hidden = !state.client;
     if (state.client) store('set', KEY.client, state.client.code);
+    renderForBanner();
+  }
+
+  /** Owner / administrator sending for a client: always show whose documents these are. */
+  function forClient() { return state.role === 'owner' && state.client && !state.client.own ? state.client : null; }
+  function renderForBanner() {
+    var b = $('forBanner');
+    if (!b) { b = el('button', 'for-banner'); b.id = 'forBanner'; b.type = 'button'; $('sendSection').insertBefore(b, $('sendSection').firstChild);
+      b.addEventListener('click', function () { $('btnBusiness').click(); }); }
+    var c = forClient();
+    b.hidden = !c;
+    if (c) { b.innerHTML = ''; b.appendChild(el('span', '', '🏢 Sending for: ')); b.appendChild(el('b', '', c.name + ' (' + c.code + ')')); b.appendChild(el('small', '', 'Change')); }
   }
 
   function loadHistory(quiet) {
@@ -241,6 +253,7 @@
         main.appendChild(el('div', 'h-title', (waiting ? '🕗 Being read tonight' + (chose ? ' · ' + chose : '') : it.docType + (it.docNo ? ' No. ' + it.docNo : '')) + ' · ' + monthLabel(it.period)));
         if (it.total != null && it.total !== '') main.appendChild(el('div', 'h-amt', peso(it.total) + (it.party ? ' · ' + it.party : '')));
         main.appendChild(el('div', 'h-sub', it.received + (it.note ? ' — ' + it.note : '')));
+        if (it.byFirm) main.appendChild(el('div', 'h-by', '🏢 Sent by the firm' + (it.byName ? ' (' + it.byName + ')' : '') + ' for you'));
         if (it.remarks) main.appendChild(el('div', 'h-remark', 'Firm: ' + it.remarks));
         var status = String(it.status || 'New');
         var badge = el('span', 'badge ' + status.split(' ')[0], status);
@@ -262,14 +275,31 @@
   $('btnBusiness').addEventListener('click', function () {
     if (state.clients.length < 2) return;
     var body = $('menuBody'); body.innerHTML = '';
-    $('menuTitle').textContent = 'Choose business';
-    state.clients.forEach(function (c) {
-      var b = el('button', 'menu-item' + (state.client && c.code === state.client.code ? ' active' : ''));
-      b.type = 'button';
-      b.appendChild(el('span', '', c.name));
-      b.addEventListener('click', function () { state.client = c; renderBusiness(); closeSheet('sheetMenu'); loadHistory(); refreshItems(); });
-      body.appendChild(b);
-    });
+    $('menuTitle').textContent = state.role === 'owner' ? 'Send for which client?' : 'Choose business';
+    var list = el('div'), q = null;
+    if (state.clients.length > 5) {   // many clients: type a few letters of the name or code
+      q = el('input', 'menu-search'); q.type = 'search'; q.placeholder = 'Search client name or code';
+      q.setAttribute('autocomplete', 'off');
+      body.appendChild(q);
+    }
+    var draw = function () {
+      var t = q ? q.value.trim().toLowerCase() : '';
+      list.innerHTML = '';
+      var shown = state.clients.filter(function (c) { return !t || c.name.toLowerCase().indexOf(t) >= 0 || c.code.toLowerCase().indexOf(t) >= 0; });
+      if (!shown.length) list.appendChild(el('div', 'menu-note', 'No client matches “' + t + '”.'));
+      shown.forEach(function (c) {
+        var b = el('button', 'menu-item' + (state.client && c.code === state.client.code ? ' active' : ''));
+        b.type = 'button';
+        var s = el('span', '', c.name);
+        if (state.role === 'owner') s.appendChild(el('small', '', c.code + (c.own ? ' · your own account' : '')));
+        b.appendChild(s);
+        b.addEventListener('click', function () { state.client = c; renderBusiness(); closeSheet('sheetMenu'); loadHistory(); refreshItems(); });
+        list.appendChild(b);
+      });
+    };
+    if (q) q.addEventListener('input', draw);
+    draw();
+    body.appendChild(list);
     openSheet('sheetMenu');
   });
 
@@ -421,6 +451,8 @@
     var c = state.cat || catByKey('unsure');
     $('sendTitle').innerHTML = '';
     $('sendTitle').appendChild(el('span', 'send-chip ' + (c.cls || 'g-unsure'), c.ico + ' ' + c.label));
+    var fc = forClient();
+    if (fc) $('sendTitle').appendChild(el('span', 'for-chip', 'For: ' + fc.name + ' (' + fc.code + ')'));
     renderPeriods();
     msg($('sendMsg'), '');
     renderDocs();
