@@ -525,15 +525,36 @@
 
   function renderPeriods() {
     var sel = $('period'); var keep = sel.value; sel.innerHTML = '';
+    var add = function (v, label) { var o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o); };
     var d = new Date(); d.setDate(1);
+    var list = [];
     for (var i = 0; i < 13; i++) {
-      var v = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
-      var o = document.createElement('option'); o.value = v; o.textContent = monthLabel(v) + (i === 0 ? ' (this month)' : i === 1 ? ' (last month)' : '');
-      sel.appendChild(o);
+      list.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2));
       d.setMonth(d.getMonth() - 1);
     }
-    if (keep) sel.value = keep;
+    list.forEach(function (v, i) { add(v, monthLabel(v) + (i === 0 ? ' (this month)' : i === 1 ? ' (last month)' : '')); });
+    // an older month picked with "Earlier month…" stays on the list
+    if (state.olderPeriod && list.indexOf(state.olderPeriod) < 0) add(state.olderPeriod, monthLabel(state.olderPeriod));
+    add('__other', 'Earlier month…');
+    if (keep && keep !== '__other') sel.value = keep;
+    sel.dataset.prev = sel.value;
   }
+  // "Earlier month…": opens the phone's month picker for any older month (e.g. Sep 2024).
+  (function () {
+    var sel = $('period'), other = $('periodOther');
+    var now = new Date(); other.max = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2); other.min = '2015-01';
+    sel.addEventListener('change', function () {
+      if (sel.value !== '__other') { sel.dataset.prev = sel.value; other.hidden = true; return; }
+      sel.value = sel.dataset.prev || '';
+      other.hidden = false; other.value = state.olderPeriod || '';
+      try { other.focus(); if (other.showPicker) other.showPicker(); } catch (e) {}
+    });
+    other.addEventListener('change', function () {
+      if (!/^\d{4}-\d{2}$/.test(other.value)) return;
+      state.olderPeriod = other.value; renderPeriods(); sel.value = other.value; sel.dataset.prev = other.value;
+      other.hidden = true;
+    });
+  })();
 
   function monthLabel(v) {
     var m = /^(\d{4})-(\d{2})$/.exec(String(v || ''));

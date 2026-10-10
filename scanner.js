@@ -56,7 +56,33 @@
   }
 
   // ------------------------------------------------------------------ open / close
+  // ------------------------------------------------------------------ phone held sideways
+  // The app stays upright, so a photo taken with the phone turned sideways would come out lying down.
+  // The phone's motion sensor tells which way it is turned; the page is then turned upright automatically.
+  var IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  function onMotion(e) { var g = e.accelerationIncludingGravity; if (g && g.x != null) { S.gx = g.x * (IOS ? -1 : 1); S.gy = g.y * (IOS ? -1 : 1); } }
+  function tiltNow() {
+    var x = S.gx || 0, y = S.gy || 0;
+    if (Math.abs(x) < 5 || Math.abs(x) < Math.abs(y) * 1.2) return 0;   // upright (or flat): leave as is
+    return x > 0 ? -1 : 1;                                                // -1 = turned left, 1 = turned right
+  }
+  function listenTilt(on) {
+    if (on) {
+      S.gx = 0; S.gy = 0;
+      try {
+        if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+          DeviceMotionEvent.requestPermission().then(function (p) { if (p === 'granted') window.addEventListener('devicemotion', onMotion); }).catch(function () {});
+        } else window.addEventListener('devicemotion', onMotion);
+      } catch (e) {}
+    } else window.removeEventListener('devicemotion', onMotion);
+  }
+  function rotateLeft(c) {
+    var r = document.createElement('canvas'); r.width = c.height; r.height = c.width;
+    var g = r.getContext('2d'); g.translate(0, r.height); g.rotate(-Math.PI / 2); g.drawImage(c, 0, 0); return r;
+  }
+
   function open() {
+    listenTilt(true);
     if (!document.getElementById('scn-css')) document.head.appendChild(h('style', { id: 'scn-css', text: CSS }));
     S.pages = []; S.filter = 'clean';
     S.root = h('div', { class: 'scn', role: 'dialog', 'aria-label': 'Document scanner' });
@@ -66,6 +92,7 @@
   }
 
   function close(deliver) {
+    listenTilt(false);
     stopCamera();
     var pages = S.pages.slice();
     if (S.root) S.root.remove();
@@ -251,7 +278,7 @@
     var c = document.createElement('canvas');
     c.width = v.videoWidth; c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
-    S.shot = c;
+    S.shot = c; S.shotTilt = tiltNow();
     var r = detectQuad(c, c.width, c.height);
     var q = r.ok ? r.quad : (S.quad && S.conf ? S.quad : [[0.06, 0.05], [0.94, 0.05], [0.94, 0.95], [0.06, 0.95]]);
     S.shotQuad = q.map(function (p) { return [p[0] * c.width, p[1] * c.height]; });
@@ -339,6 +366,8 @@
     setTimeout(function () {
       try {
         S.flat = warp(S.shot, orderQuad(S.shotQuad));
+        if (S.shotTilt === -1) S.flat = rotateLeft(S.flat);        // phone was turned left: turn the page upright
+        else if (S.shotTilt === 1) S.flat = rotate(S.flat);         // phone was turned right
         showReview();
       } catch (e) { busy.textContent = 'Could not process this photo. Tap Retake.'; }
     }, 30);

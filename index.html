@@ -13,7 +13,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Gabbrielle">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="stylesheet" href="app.css?v=15">
+  <link rel="stylesheet" href="app.css?v=16">
 </head>
 <body>
   <div id="demoBanner" class="demo-banner" hidden>Demo mode — nothing is really sent. Login code: <b>123456</b></div>
@@ -151,6 +151,7 @@
       <div class="field">
         <label for="period">For which month? <span class="muted" style="font-weight:400">(used when the date can't be read)</span></label>
         <select id="period"></select>
+        <input type="month" id="periodOther" class="period-other" hidden aria-label="Choose an earlier month">
       </div>
 
       <div class="field">
@@ -263,7 +264,7 @@
 
   <script src="config.js"></script>
   <script src="outbox.js?v=1"></script>
-  <script src="app.js?v=18"></script>
-  <script src="scanner.js?v=7"></script>
+  <script src="app.js?v=19"></script>
+  <script src="scanner.js?v=8"></script>
 </body>
 </html>
