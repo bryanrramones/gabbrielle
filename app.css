@@ -378,3 +378,17 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 .pc-actions { display: flex; gap: 8px; margin-top: 12px; }
 .pc-actions .btn { flex: 1; }
 .pc-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 18px; margin-top: 8px; padding-top: 6px; border-top: 1px solid #f0f3f7; }
+
+/* ---------- documents waiting to send (no internet) ---------- */
+.outbox { border-left: 4px solid #d98a1f; background: #fff8ec; }
+.ob-row { display: flex; gap: 10px; align-items: flex-start; }
+.ob-ico { font-size: 22px; line-height: 1.2; }
+.ob-subline { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.ob-btns { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
+.ob-list { margin-top: 10px; border-top: 1px dashed #ecd3a6; }
+.ob-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed #ecd3a6; }
+.ob-text { flex: 1; min-width: 0; }
+.ob-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ob-sub { font-size: 12px; color: var(--muted); }
+.ob-failed .ob-sub { color: #b42318; }
+.doc.s-wait { border-color: #e7b766; background: #fffaf0; }

@@ -1,8 +1,10 @@
 // Keeps the app's screens on the phone so it opens instantly, even on a weak signal.
-// Sending documents always needs internet.
-const CACHE = 'gabbrielle-v10';
+// Documents sent with no internet wait on the phone (outbox.js) and are sent from here
+// in the background once the signal is back (Android), with a "sent" notification.
+importScripts('outbox.js?v=1');
+const CACHE = 'gabbrielle-v11';
 const SHELL = [
-  './', './index.html', './app.css', './app.js', './scanner.js', './config.js', './manifest.webmanifest',
+  './', './index.html', './app.css', './app.js', './scanner.js', './config.js', './outbox.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/emblem.png', './icons/logo-full.png', './icons/favicon.png'
 ];
 
@@ -58,3 +60,34 @@ self.addEventListener('notificationclick', e => {
     return self.clients.openWindow(url);
   }));
 });
+
+// ---------- Documents waiting to send ----------
+self.addEventListener('sync', e => {
+  if (e.tag === 'gab-outbox') e.waitUntil(sendWaiting());
+});
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'flush') e.waitUntil(sendWaiting());
+});
+
+function sendWaiting() {
+  return self.GabOutbox.flush().then(res => {
+    if (res.busy) return;                                   // the open app is already sending
+    return Promise.all([self.GabOutbox.getMeta(), self.clients.matchAll({ type: 'window', includeUncontrolled: true })]).then(([me, wins]) => {
+      const appOpen = wins.some(w => w.visibilityState === 'visible');
+      wins.forEach(w => w.postMessage({ type: 'outbox', sent: res.sent, failed: res.newlyFailed, waiting: res.waiting }));
+      const jobs = [];
+      if (!appOpen && res.sent) jobs.push(note('Documents sent ✅',
+        'Your ' + res.sent + ' document' + (res.sent === 1 ? ' was' : 's were') + ' sent to ' + (me.firmName || 'the firm') + '.', 'gab-sent', './'));
+      if (!appOpen && res.newlyFailed) jobs.push(note('A document could not be sent',
+        'Please open Gabbrielle and try again.', 'gab-failed', './?outbox=1'));
+      if (!appOpen && res.loggedOut && res.waiting) jobs.push(note('Please open Gabbrielle',
+        'Log in again so your saved documents can be sent.', 'gab-login', './'));
+      return Promise.all(jobs);
+    }).then(() => { if (res.network && res.waiting) throw new Error('still offline'); });   // the phone will try again later
+  });
+}
+
+function note(title, body, tag, url) {
+  if (!self.registration.showNotification || (self.Notification && Notification.permission !== 'granted')) return null;
+  return self.registration.showNotification(title, { body, icon: 'icons/icon-192.png', badge: 'icons/favicon.png', tag, data: { url } });
+}

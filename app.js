@@ -147,6 +147,7 @@
       state.token = r.token;
       store('set', KEY.token, r.token);
       store('set', KEY.email, r.email);
+      rememberMe(r);
       setNick(r.nickname);
       enterHome(r.clients, r.staff, r.role);
     });
@@ -157,7 +158,8 @@
     state.token = null; state.clients = []; state.client = null; state.staff = false;
     state.nickname = ''; store('del', 'gab.nick');
     state.items = []; state.staffItems = { forStaff: [], waiting: [] }; setBadge(0);
-    store('del', KEY.token); store('del', KEY.client);
+    store('del', KEY.token); store('del', KEY.client); store('del', 'gab.me');
+    outboxMeta();
     $('formCode').hidden = true; $('formEmail').hidden = false;
     $('email').value = state.email || '';
     msg($('loginMsg'), reason || '');
@@ -165,7 +167,10 @@
   }
 
   // ------------------------------------------------------------------ home
+  function rememberMe(r) { store('set', 'gab.me', JSON.stringify({ clients: r.clients, staff: r.staff, role: r.role, nickname: r.nickname })); }
+
   function enterHome(clients, staff, role) {
+    outboxMeta(); setTimeout(function () { renderOutbox(); sendWaiting(true); }, 800);
     state.clients = clients || [];
     state.staff = !!staff;
     state.role = role || (staff ? 'staff' : 'client');
@@ -431,7 +436,7 @@
 
   function docCard(p) {
     var st = p.status;
-    var card = el('div', 'doc ' + (st === 'sent' ? 's-sure' : st === 'error' ? 's-err' : ''));
+    var card = el('div', 'doc ' + (st === 'sent' ? 's-sure' : st === 'error' ? 's-err' : st === 'waiting' ? 's-wait' : ''));
     var th;
     if (/^image\//.test(p.file.type)) { th = document.createElement('img'); th.className = 'doc-thumb'; if (!p.url) p.url = URL.createObjectURL(p.file); th.src = p.url; th.alt = ''; }
     else th = el('div', 'doc-thumb', '📄');
@@ -442,6 +447,9 @@
       var s2 = el('div', 'doc-status'); s2.innerHTML = '<span class="spin"></span>Sending…'; body.appendChild(s2);
     } else if (st === 'sent') {
       body.appendChild(el('div', 'doc-status', '✓ Sent'));
+    } else if (st === 'waiting') {
+      body.appendChild(el('div', 'doc-status', '📱 Saved on this phone'));
+      body.appendChild(el('div', 'doc-sub', 'Will send when the signal is back'));
     } else if (st === 'error') {
       body.appendChild(el('div', 'doc-status', '✕ Not sent'));
       body.appendChild(el('div', 'doc-sub', p.error || 'Something went wrong.'));
@@ -508,9 +516,140 @@
 
   // ------------------------------------------------------------------ sending
   $('btnSend').addEventListener('click', function () {
+    if (useOutbox()) return sendViaOutbox();
     if (!navigator.onLine && !DEMO) { msg($('sendMsg'), 'No internet connection. Please try again when you have a signal.'); return; }
     sendAll();
   });
+
+  // ------------------------------------------------------------------ waiting list (works with no internet)
+  function useOutbox() { return !DEMO && !!window.GabOutbox && !!window.indexedDB; }
+  function outboxMeta() {
+    if (!useOutbox()) return;
+    window.GabOutbox.setMeta({ email: store('get', KEY.email) || state.email || '', token: state.token || null, engineUrl: CFG.ENGINE_URL, firmName: state.cfg.firmName }).catch(function () {});
+  }
+  function askBackgroundSend() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(function (reg) { if (reg.sync) return reg.sync.register('gab-outbox'); }).catch(function () {});
+  }
+
+  /** Each document is first saved on the phone (already shrunk), then sent; anything not sent waits and goes later. */
+  function sendViaOutbox() {
+    state.sending = true; msg($('sendMsg'), ''); updateSendButton();
+    var todo = state.pending.filter(function (p) { return p.status !== 'sent'; });
+    var period = $('period').value, note = $('note').value.trim(), email = store('get', KEY.email) || state.email || '';
+    var save = function (i) {
+      if (i >= todo.length) return Promise.resolve();
+      var p = todo[i];
+      if (p.uid) { p.status = 'saved'; return save(i + 1); }   // already on the phone (a retry)
+      p.status = 'sending'; renderDocs();
+      return prepare(p.file).then(function (f) {
+        return window.GabOutbox.add({ email: email, clientCode: state.client.code, clientName: state.client.name, fileName: f.name, mimeType: f.type, data: f.data,
+          period: period, note: note, category: state.cat ? state.cat.key : 'unsure', sub: state.cat ? state.cat.sub : null })
+          .then(function (uid) { p.uid = uid; p.status = 'saved'; });
+      }, function () { p.status = 'error'; p.error = 'This file could not be opened.'; })
+        .catch(function () { p.status = 'error'; p.error = 'This phone has no space left to save the document.'; })
+        .then(function () { return save(i + 1); });
+    };
+    save(0).then(function () {
+      var mine = {}; todo.forEach(function (p) { if (p.uid) mine[p.uid] = p; });
+      var go = navigator.onLine ? window.GabOutbox.retryFailed().then(function () {
+        todo.forEach(function (p) { if (p.uid) p.status = 'sending'; }); renderDocs();
+        return window.GabOutbox.flush(function (it, r) {
+          var p = mine[it.uid]; if (!p) return;
+          if (r.ok) p.status = 'sent';
+          else if (r.network) p.status = 'waiting';
+          else if (it.failed) { p.status = 'error'; p.error = it.error; }
+          else p.status = 'waiting';
+          renderDocs();
+        });
+      }) : Promise.resolve({ network: true });
+      return go.then(function (res) {
+        state.sending = false;
+        todo.forEach(function (p) { if (p.status === 'saved' || p.status === 'sending') p.status = 'waiting'; });
+        var sent = todo.filter(function (p) { return p.status === 'sent'; }).length;
+        var waiting = todo.filter(function (p) { return p.status === 'waiting'; }).length;
+        var failed = todo.filter(function (p) { return p.status === 'error'; }).length;
+        if (res && res.busy) waiting = todo.filter(function (p) { return p.uid && p.status !== 'sent'; }).length;
+        if (waiting) askBackgroundSend();
+        renderOutbox();
+        if (res && res.loggedOut) { closeSheet('sheetSend'); clearPending(); return logout(true, 'Please log in again. Your documents are saved on this phone and will be sent after you log in.'); }
+        if (failed) {
+          renderDocs();
+          var firstErr = todo.filter(function (p) { return p.status === 'error'; })[0];
+          msg($('sendMsg'), (sent ? sent + ' sent. ' : '') + (waiting ? waiting + ' saved to send later. ' : '') + failed + ' could not be sent: ' + (firstErr && firstErr.error || '') + ' Tap Send to try again.');
+          updateSendButton();
+          return;
+        }
+        closeSheet('sheetSend');
+        if (waiting && !sent) {
+          $('doneTitle').textContent = 'Saved on your phone 📱';
+          $('doneText').textContent = 'No internet right now. ' + (waiting === 1 ? 'Your document' : 'Your ' + waiting + ' documents') + ' will be sent to ' + state.cfg.firmName +
+            (isIos() ? ' the next time you open Gabbrielle with internet.' : ' automatically as soon as you are back online — you\'ll get a notification when ' + (waiting === 1 ? 'it is' : 'they are') + ' sent.');
+        } else {
+          $('doneTitle').textContent = 'Received!';
+          $('doneText').textContent = sent + ' document' + (sent === 1 ? '' : 's') + ' sent to ' + state.cfg.firmName + (waiting ? ' (' + waiting + ' more saved — ' + (waiting === 1 ? 'it' : 'they') + ' will go when the signal is better)' : '') +
+            '. The firm will read ' + (sent === 1 ? 'it' : 'them') + ' tonight. If anything is unclear, you\'ll see it under “Needs immediate action”.';
+        }
+        clearPending();
+        openSheet('sheetDone');
+        if (sent) loadHistory();
+      });
+    }).catch(function () {
+      state.sending = false; renderDocs();
+      msg($('sendMsg'), 'Something went wrong while saving. Please try again.');
+    });
+  }
+
+  /** Try to send what is waiting (app opened, signal back, every minute). */
+  function sendWaiting(quiet) {
+    if (!useOutbox() || !state.token || state.sending) return Promise.resolve();
+    return window.GabOutbox.list().then(function (items) {
+      if (!items.some(function (i) { return !i.failed; }) || !navigator.onLine) { renderOutbox(); return; }
+      return window.GabOutbox.flush().then(function (res) {
+        renderOutbox();
+        if (res.busy) return;
+        if (res.sent) { toast(res.sent + ' saved document' + (res.sent === 1 ? '' : 's') + ' sent ✓'); loadHistory(true); }
+        if (res.newlyFailed && !quiet) toast('A saved document could not be sent — see the list.');
+        if (res.loggedOut) logout(true, 'Please log in again. Your saved documents will be sent after you log in.');
+        else if (res.network && res.waiting) askBackgroundSend();
+      });
+    }).catch(function () {});
+  }
+
+  function renderOutbox() {
+    if (!useOutbox()) return;
+    window.GabOutbox.list().then(function (items) {
+      var me = store('get', KEY.email) || state.email || '';
+      items = items.filter(function (i) { return i.email === me; });
+      var card = $('outboxCard'); card.hidden = !items.length;
+      if (!items.length) { $('outboxList').hidden = true; return; }
+      var failed = items.filter(function (i) { return i.failed; }).length, waiting = items.length - failed;
+      $('outboxTitle').textContent = (waiting ? waiting + ' document' + (waiting === 1 ? '' : 's') + ' waiting to send' : '') + (waiting && failed ? ' · ' : '') + (failed ? failed + ' not sent' : '');
+      $('outboxSub').textContent = failed ? 'Tap “Send now” to try again, or remove the ones that keep failing.'
+        : navigator.onLine ? 'Sending…' : 'Saved on this phone. ' + (isIos() ? 'They will go the next time you open Gabbrielle with internet.' : 'They will go automatically when you have internet.');
+      var box = $('outboxList'); box.innerHTML = '';
+      items.forEach(function (i) {
+        var row = el('div', 'ob-item' + (i.failed ? ' ob-failed' : ''));
+        var t = el('div', 'ob-text');
+        t.appendChild(el('div', 'ob-name', (i.clientName ? i.clientName + ' · ' : '') + i.fileName));
+        t.appendChild(el('div', 'ob-sub', i.failed ? '✕ ' + (i.error || 'Not sent') : 'Saved ' + new Date(i.created).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })));
+        row.appendChild(t);
+        var x = el('button', 'link muted-link', 'Remove'); x.type = 'button';
+        x.addEventListener('click', function () { if (confirmTwice(x)) window.GabOutbox.remove(i.uid).then(renderOutbox); });
+        row.appendChild(x);
+        box.appendChild(row);
+      });
+    }).catch(function () {});
+  }
+  $('btnOutboxSend').addEventListener('click', function () {
+    if (!navigator.onLine) { toast('Still no internet. They will go automatically when the signal is back.'); return; }
+    var b = $('btnOutboxSend'); busy(b, true, 'Sending…');
+    window.GabOutbox.retryFailed().then(function () { return sendWaiting(false); }).then(function () { busy(b, false); });
+  });
+  $('btnOutboxList').addEventListener('click', function () {
+    var l = $('outboxList'); l.hidden = !l.hidden; $('btnOutboxList').textContent = l.hidden ? 'See list' : 'Hide list';
+  });
+  window.addEventListener('online', function () { setTimeout(function () { sendWaiting(true); }, 1500); });
 
   function sendAll() {
     state.sending = true; msg($('sendMsg'), '');
@@ -855,7 +994,7 @@
   /** Every minute while the app is open on the home screen (and no window is open on top), check for news quietly. */
   function quietRefresh() {
     if (!state.token || $('viewHome').hidden || document.visibilityState !== 'visible' || !navigator.onLine) return Promise.resolve();
-    return Promise.all([refreshItems(), loadHistory(true)]);
+    return Promise.all([refreshItems(), loadHistory(true), sendWaiting(true)]);
   }
   setInterval(function () {
     var sheetOpen = Array.prototype.some.call(document.querySelectorAll('.sheet-wrap'), function (w) { return !w.hidden; });
@@ -887,7 +1026,7 @@
     });
   })();
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && state.token && !$('viewHome').hidden) { refreshItems(); }
+    if (document.visibilityState === 'visible' && state.token && !$('viewHome').hidden) { refreshItems(); sendWaiting(true); }
   });
 
   // ------------------------------------------------------------------ owner: clients overview + tools
@@ -1201,8 +1340,13 @@
     else if (link.owner && state.role === 'owner') { renderOwnerSheet(); openSheet('sheetOwner'); }
     else if (link.staff && state.staff) { state.staffTab = 'check'; renderStaffSheet(); openSheet('sheetStaff'); }
     else if (link.action && state.items.length) { renderActionSheet(); openSheet('sheetAction'); }
-    if ((link.staff || link.action || link.owner || link.post) && history.replaceState) history.replaceState(null, '', location.pathname);
+    else if (link.outbox) { setTimeout(function () { $('outboxList').hidden = false; $('btnOutboxList').textContent = 'Hide list'; $('outboxCard').scrollIntoView({ block: 'center' }); }, 900); }
+    if ((link.staff || link.action || link.owner || link.post || link.outbox) && history.replaceState) history.replaceState(null, '', location.pathname);
   }
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function (e) {
+    var d0 = e.data || {};
+    if (d0.type === 'outbox') { renderOutbox(); if (d0.sent) { toast(d0.sent + ' saved document' + (d0.sent === 1 ? '' : 's') + ' sent ✓'); loadHistory(true); } return; }
+  });
   if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function (e) {
     var d = e.data || {};
     if (d.type !== 'open' || !state.token) return;
@@ -1232,7 +1376,7 @@
     card.hidden = !(st === 'ask' || st === 'install') || store('get', 'gab.pushLater') === new Date().toDateString();
     $('notifText').textContent = st === 'install'
       ? 'To get notifications on iPhone, first add Gabbrielle to your Home Screen, then open it from there.'
-      : (state.staff ? 'Get a notification when there are details to check.' : 'Get a notification when the firm needs something from you.');
+      : (state.staff ? 'Get a notification when there are details to check.' : 'Turn on notifications, then tap “Allow” — so we can tell you when your documents are sent and when the firm needs something from you.');
     $('btnNotif').textContent = st === 'install' ? 'Show me how' : 'Turn on notifications';
     if (st === 'on') ensureSubscribed(false);
   }
@@ -1247,6 +1391,7 @@
     if (st === 'install') return installHelp();
     if (st === 'off') { toast('Notifications are blocked. Turn them on in your phone\'s settings for Gabbrielle.'); return; }
     if (st === 'none') { toast('This phone or browser can\'t show notifications.'); return; }
+    toast('Your phone will ask — please tap “Allow”.');
     Notification.requestPermission().then(function (p) {
       if (p !== 'granted') { $('notifCard').hidden = true; toast('Okay — notifications stay off. You can turn them on later from the ⋮ menu.'); return; }
       $('notifCard').hidden = true;
@@ -1391,8 +1536,13 @@
     if (state.token) {
       // Show home right away; confirm the login is still valid in the background.
       call('me', { token: state.token }).then(function (r) {
-        if (r.ok) { setNick(r.nickname); enterHome(r.clients, r.staff, r.role); }
-        else if (r.network) { show('viewLogin'); msg($('loginMsg'), r.error); }
+        if (r.ok) { rememberMe(r); setNick(r.nickname); enterHome(r.clients, r.staff, r.role); }
+        else if (r.network) {
+          // No internet: open the app from what this phone remembers, so documents can still be saved and sent later.
+          var me = null; try { me = JSON.parse(store('get', 'gab.me') || 'null'); } catch (e) {}
+          if (me && me.clients) { setNick(me.nickname); enterHome(me.clients, me.staff, me.role); toast('No internet — documents you send will wait on this phone.'); }
+          else { show('viewLogin'); msg($('loginMsg'), r.error); }
+        }
         else logout(true, r.error);
       });
     } else {

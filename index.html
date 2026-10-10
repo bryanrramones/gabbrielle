@@ -13,7 +13,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Gabbrielle">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="stylesheet" href="app.css?v=12">
+  <link rel="stylesheet" href="app.css?v=13">
 </head>
 <body>
   <div id="demoBanner" class="demo-banner" hidden>Demo mode — nothing is really sent. Login code: <b>123456</b></div>
@@ -89,6 +89,15 @@
         </div>
         <button type="button" class="staff-btn owner-btn post-btn" id="btnToPost" hidden>📒 To post in Cl@ud <span class="count" id="toPostCount">0</span></button>
         <button type="button" class="staff-btn owner-btn" id="btnOwner" hidden>📊 Clients overview &amp; owner tools <span class="count" id="ownerQuietCount" hidden>0</span></button>
+      </section>
+
+      <section class="card outbox" id="outboxCard" hidden>
+        <div class="ob-row"><span class="ob-ico" aria-hidden="true">📤</span><div><b id="outboxTitle"></b><p id="outboxSub" class="ob-subline"></p></div></div>
+        <div id="outboxList" class="ob-list" hidden></div>
+        <div class="ob-btns">
+          <button type="button" class="btn primary small" id="btnOutboxSend">Send now</button>
+          <button type="button" class="link" id="btnOutboxList">See list</button>
+        </div>
       </section>
 
       <section class="card notif" id="notifCard" hidden>
@@ -241,7 +250,8 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="config.js"></script>
-  <script src="app.js?v=12"></script>
+  <script src="outbox.js?v=1"></script>
+  <script src="app.js?v=13"></script>
   <script src="scanner.js?v=7"></script>
 </body>
 </html>
