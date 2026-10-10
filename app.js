@@ -52,6 +52,7 @@
   // ------------------------------------------------------------------ views
   function show(view) {
     ['viewLogin', 'viewHome', 'viewNick'].forEach(function (v) { $(v).hidden = v !== view; });
+    if (view === 'viewHome') armBack();   // so Back on the home screen asks before leaving
   }
   // Open windows (sheets, photo viewer). The phone's Back button closes the top one instead of leaving the app.
   var LAYERS = [], backArmed = false;
@@ -1032,11 +1033,21 @@
     if (!$('viewer').hidden) closeViewer(true);
     else {
       var top = LAYERS[LAYERS.length - 1];
-      if (!top) { history.back(); return; }                                            // nothing open: Back leaves the app as usual
+      if (!top) {
+        if (exiting || $('viewHome').hidden) { history.back(); return; }               // not on home (or confirmed): leave as usual
+        openSheet('sheetExit'); return;                                                 // home screen: ask first
+      }
       if (top === 'sheetSend' && state.sending) { armBack(); toast('Please wait — still sending.'); return; }
       closeSheet(top);
     }
-    if (LAYERS.length || !$('viewer').hidden) armBack();
+    if (LAYERS.length || !$('viewer').hidden || !$('viewHome').hidden) armBack();
+  });
+  var exiting = false;
+  $('btnExitStay').addEventListener('click', function () { closeSheet('sheetExit'); });
+  $('btnExitYes').addEventListener('click', function () {
+    closeSheet('sheetExit'); exiting = true;
+    try { window.close(); } catch (e) {}                                                // closes the installed app where the phone allows it
+    setTimeout(function () { history.back(); }, 50);                                     // otherwise step out of Gabbrielle
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeViewer(false); });
 

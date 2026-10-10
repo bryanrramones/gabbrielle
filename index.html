@@ -13,7 +13,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Gabbrielle">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="stylesheet" href="app.css?v=14">
+  <link rel="stylesheet" href="app.css?v=15">
 </head>
 <body>
   <div id="demoBanner" class="demo-banner" hidden>Demo mode — nothing is really sent. Login code: <b>123456</b></div>
@@ -173,6 +173,18 @@
     </div>
   </div>
 
+  <!-- ============ EXIT? (phone Back button on the home screen) ============ -->
+  <div id="sheetExit" class="sheet-wrap" hidden>
+    <div class="sheet done">
+      <h3>Exit Gabbrielle?</h3>
+      <p class="muted">Documents waiting to send stay saved on this phone.</p>
+      <div class="exit-btns">
+        <button id="btnExitStay" class="btn ghost block" type="button">Stay</button>
+        <button id="btnExitYes" class="btn primary block" type="button">Exit</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ MENU / BUSINESS PICKER ============ -->
   <div id="sheetMenu" class="sheet-wrap" hidden>
     <div class="sheet">
@@ -251,7 +263,7 @@
 
   <script src="config.js"></script>
   <script src="outbox.js?v=1"></script>
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=18"></script>
   <script src="scanner.js?v=7"></script>
 </body>
 </html>
