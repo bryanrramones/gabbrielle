@@ -294,7 +294,6 @@
         var b = el('button', 'menu-item' + (state.client && c.code === state.client.code ? ' active' : ''));
         b.type = 'button';
         var s = el('span', '', c.name);
-        if (state.role === 'owner') s.appendChild(el('small', '', c.code + (c.own ? ' · your own account' : '')));
         b.appendChild(s);
         b.addEventListener('click', function () { state.client = c; renderBusiness(); closeSheet('sheetMenu'); loadHistory(); refreshItems(); });
         list.appendChild(b);
