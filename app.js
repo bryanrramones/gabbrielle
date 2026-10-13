@@ -537,7 +537,10 @@
       list.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2));
       d.setMonth(d.getMonth() - 1);
     }
-    list.forEach(function (v, i) { add(v, monthLabel(v) + (i === 0 ? ' (this month)' : i === 1 ? ' (last month)' : '')); });
+    list.forEach(function (v, i) {
+      add(v, monthLabel(v) + (i === 0 ? ' (this month)' : i === 1 ? ' (last month)' : ''));
+      if (i === 1) add('various', 'Various (each document\u2019s own date)');   // a batch spanning several months
+    });
     // an older month picked with "Earlier month…" stays on the list
     if (state.olderPeriod && list.indexOf(state.olderPeriod) < 0) add(state.olderPeriod, monthLabel(state.olderPeriod));
     add('__other', 'Earlier month…');
@@ -563,7 +566,7 @@
 
   function monthLabel(v) {
     var m = /^(\d{4})-(\d{2})$/.exec(String(v || ''));
-    if (!m) return String(v || '');
+    if (!m) return /^various$/i.test(String(v || '')) ? 'Various months' : String(v || '');
     return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m[2]) - 1] + ' ' + m[1];
   }
 
